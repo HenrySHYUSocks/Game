@@ -192,24 +192,27 @@ const UNIT_DEFS = {
   medic:        { faction:'terran', cost:3, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40 },
   siegetank:    { faction:'terran', cost:6, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30 },
   ghost:        { faction:'terran', cost:5, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost' },
+  scv:          { faction:'terran', cost:2, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3 },
   // PROTOSS
   zealot:       { faction:'protoss', cost:3, hp:400, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot' },
   stalker:      { faction:'protoss', cost:4, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker' },
   sentry:       { faction:'protoss', cost:3, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:100 },
   hightemplar:  { faction:'protoss', cost:6, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:50 },
   immortal:     { faction:'protoss', cost:5, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal' },
+  probe:        { faction:'protoss', cost:2, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3 },
   // ZERG
   zergling:     { faction:'zerg', cost:2, hp:150, dmg:25, speed:2.0, range:18,  atkSpeed:0.5, count:6, r:6,  color:'#ff4444', name:'Zergling' },
   roach:        { faction:'zerg', cost:3, hp:450, dmg:30, speed:1.0, range:80,  atkSpeed:0.9, count:2, r:10, color:'#aa3333', name:'Roach' },
   hydralisk:    { faction:'zerg', cost:4, hp:300, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk' },
   baneling:     { faction:'zerg', cost:3, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35 },
   ultralisk:    { faction:'zerg', cost:7, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25 },
+  drone:        { faction:'zerg', cost:2, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3 },
 };
 
 const FACTION_CARDS = {
-  terran:  ['marine','marauder','medic','siegetank','ghost'],
-  protoss: ['zealot','stalker','sentry','hightemplar','immortal'],
-  zerg:    ['zergling','roach','hydralisk','baneling','ultralisk'],
+  terran:  ['marine','marauder','medic','siegetank','ghost','scv'],
+  protoss: ['zealot','stalker','sentry','hightemplar','immortal','probe'],
+  zerg:    ['zergling','roach','hydralisk','baneling','ultralisk','drone'],
 };
 
 // ---- Card Hand ----
@@ -284,6 +287,8 @@ function spawnUnit(defName, x, y, team) {
       healAmt: def.healAmt || 0,
       suicide: def.suicide || false,
       splash: def.splash || 0,
+      worker: def.worker || false,
+      mineRate: def.mineRate || 0,
       target: null,
       animFrame: 0,
     });
@@ -384,10 +389,17 @@ function findTarget(unit) {
 function updateGame(dt) {
   gameTime += dt;
 
-  // Mineral generation
-  const rate = gameTime > 120 ? MINERAL_RATE * 2 : MINERAL_RATE;
-  playerMinerals = Math.min(MAX_MINERALS, playerMinerals + rate * dt);
-  enemyMinerals = Math.min(MAX_MINERALS, enemyMinerals + rate * dt);
+  // Mineral generation (boosted by workers)
+  let playerWorkerBoost = 0;
+  let enemyWorkerBoost = 0;
+  for (const u of units) {
+    if (u.dead || !u.worker) continue;
+    if (u.team === 'player') playerWorkerBoost += u.mineRate;
+    else enemyWorkerBoost += u.mineRate;
+  }
+  const baseRate = gameTime > 120 ? MINERAL_RATE * 2 : MINERAL_RATE;
+  playerMinerals = Math.min(MAX_MINERALS, playerMinerals + (baseRate + playerWorkerBoost) * dt);
+  enemyMinerals = Math.min(MAX_MINERALS, enemyMinerals + (baseRate + enemyWorkerBoost) * dt);
 
   // AI
   updateEnemyAI(dt);
@@ -396,6 +408,27 @@ function updateGame(dt) {
   for (const unit of units) {
     if (unit.dead) continue;
     unit.animFrame += dt * 5;
+
+    // Workers walk to base area and mine
+    if (unit.worker) {
+      const baseY = unit.team === 'player' ? GAME_H - 60 : 60;
+      const baseX = GAME_W / 2;
+      const d = dist(unit, { x: baseX, y: baseY });
+      if (d > 25) {
+        const angle = Math.atan2(baseY - unit.y, baseX - unit.x);
+        unit.x += Math.cos(angle) * unit.speed * 50 * dt;
+        unit.y += Math.sin(angle) * unit.speed * 50 * dt;
+      } else {
+        // Bob around the base area while mining
+        unit.x += Math.sin(gameTime * 3 + unit.y) * 0.3;
+        unit.y += Math.cos(gameTime * 2 + unit.x) * 0.3;
+        // Sparkle effect for mining
+        if (Math.random() < 0.03) {
+          spawnParticle(unit.x + (Math.random() - 0.5) * 10, unit.y + (Math.random() - 0.5) * 10, '#44ccff', 2);
+        }
+      }
+      continue;
+    }
 
     const target = findTarget(unit);
     unit.target = target;
@@ -763,56 +796,269 @@ function drawTowers() {
 
 function drawUnit(u) {
   const bob = Math.sin(u.animFrame) * 1.5;
+  const cx = u.x;
+  const cy = u.y + bob;
+  const r = u.r;
 
   // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath();
-  ctx.ellipse(u.x + 1, u.y + u.r * 0.5 + 1, u.r * 0.8, u.r * 0.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx + 1, cy + r * 0.5 + 1, r * 0.8, r * 0.4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Body
-  ctx.fillStyle = u.color;
-  ctx.beginPath();
-  ctx.arc(u.x, u.y + bob, u.r, 0, Math.PI * 2);
-  ctx.fill();
+  // Draw unit shape based on type
+  drawUnitShape(u, cx, cy, r);
 
-  // Outline for player units
-  if (u.team === 'player') {
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-  } else {
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1;
-  }
-  ctx.beginPath();
-  ctx.arc(u.x, u.y + bob, u.r, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Eye / indicator
-  const dir = u.team === 'player' ? -1 : 1;
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(u.x, u.y + bob + dir * u.r * 0.3, u.r * 0.25, 0, Math.PI * 2);
-  ctx.fill();
+  // Outline
+  ctx.strokeStyle = u.team === 'player' ? '#fff' : '#000';
+  ctx.lineWidth = 1.2;
+  drawUnitOutline(u, cx, cy, r);
 
   // Shield indicator (protoss)
   if (u.maxShield > 0 && u.shield > 0) {
-    ctx.strokeStyle = 'rgba(100, 200, 255, 0.6)';
+    ctx.strokeStyle = 'rgba(100, 200, 255, 0.7)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(u.x, u.y + bob, u.r + 3, 0, Math.PI * 2 * (u.shield / u.maxShield));
+    ctx.arc(cx, cy, r + 3, 0, Math.PI * 2 * (u.shield / u.maxShield));
     ctx.stroke();
   }
 
+  // Unit icon/letter
+  ctx.fillStyle = u.team === 'player' ? '#fff' : 'rgba(255,255,255,0.8)';
+  ctx.font = `bold ${Math.max(7, r - 1)}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const icon = getUnitIcon(u.type);
+  ctx.fillText(icon, cx, cy);
+
   // HP bar
   if (u.hp < u.maxHp) {
-    const barW = u.r * 2.2;
+    const barW = r * 2.4;
     const hpFrac = u.hp / u.maxHp;
     ctx.fillStyle = '#000';
-    ctx.fillRect(u.x - barW / 2, u.y - u.r - 7 + bob, barW, 3);
+    ctx.fillRect(cx - barW / 2, cy - r - 8, barW, 3);
     ctx.fillStyle = hpFrac > 0.5 ? '#44dd44' : hpFrac > 0.25 ? '#ddaa00' : '#dd3333';
-    ctx.fillRect(u.x - barW / 2, u.y - u.r - 7 + bob, barW * hpFrac, 3);
+    ctx.fillRect(cx - barW / 2, cy - r - 8, barW * hpFrac, 3);
   }
+}
+
+function getUnitIcon(type) {
+  const icons = {
+    marine: 'M', marauder: 'R', medic: '+', siegetank: 'S', ghost: 'G', scv: 'W',
+    zealot: 'Z', stalker: 'K', sentry: 'N', hightemplar: 'H', immortal: 'I', probe: 'W',
+    zergling: 'z', roach: 'r', hydralisk: 'h', baneling: 'b', ultralisk: 'U', drone: 'W',
+  };
+  return icons[type] || '?';
+}
+
+function drawUnitShape(u, cx, cy, r) {
+  ctx.fillStyle = u.color;
+  switch (u.type) {
+    // --- TERRAN ---
+    case 'marine': // Circle
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'marauder': // Rounded square (big & beefy)
+      roundRect(ctx, cx - r, cy - r, r * 2, r * 2, 4, true, false);
+      break;
+    case 'medic': // Circle with cross aura
+      ctx.fillStyle = '#225588';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = u.color;
+      ctx.fillRect(cx - r * 0.6, cy - r * 0.2, r * 1.2, r * 0.4);
+      ctx.fillRect(cx - r * 0.2, cy - r * 0.6, r * 0.4, r * 1.2);
+      break;
+    case 'siegetank': // Wide rectangle (tank treads)
+      ctx.fillRect(cx - r * 1.1, cy - r * 0.7, r * 2.2, r * 1.4);
+      // Barrel
+      ctx.fillStyle = '#445577';
+      ctx.fillRect(cx - 2, cy - r * 0.9, 4, r * 0.6);
+      break;
+    case 'ghost': // Diamond (stealthy)
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r * 0.8, cy);
+      ctx.lineTo(cx, cy + r);
+      ctx.lineTo(cx - r * 0.8, cy);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'scv': // Pentagon (worker)
+      drawPolygon(ctx, cx, cy, r, 5, u.color);
+      break;
+    // --- PROTOSS ---
+    case 'zealot': // Triangle pointing forward (aggressive melee)
+      ctx.beginPath();
+      if (u.team === 'player') {
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy + r * 0.8);
+        ctx.lineTo(cx - r, cy + r * 0.8);
+      } else {
+        ctx.moveTo(cx, cy + r);
+        ctx.lineTo(cx + r, cy - r * 0.8);
+        ctx.lineTo(cx - r, cy - r * 0.8);
+      }
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'stalker': // Tall diamond
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r * 1.1);
+      ctx.lineTo(cx + r * 0.7, cy);
+      ctx.lineTo(cx, cy + r * 1.1);
+      ctx.lineTo(cx - r * 0.7, cy);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'sentry': // Hexagon (support/shield)
+      drawPolygon(ctx, cx, cy, r, 6, u.color);
+      break;
+    case 'hightemplar': // Star shape (powerful caster)
+      drawStar(ctx, cx, cy, r, u.color);
+      break;
+    case 'immortal': // Octagon (heavy/armored)
+      drawPolygon(ctx, cx, cy, r, 8, u.color);
+      break;
+    case 'probe': // Small hexagon (worker)
+      drawPolygon(ctx, cx, cy, r, 6, u.color);
+      break;
+    // --- ZERG ---
+    case 'zergling': // Small triangle (fast swarm)
+      ctx.beginPath();
+      if (u.team === 'player') {
+        ctx.moveTo(cx, cy - r * 0.9);
+        ctx.lineTo(cx + r * 0.8, cy + r * 0.7);
+        ctx.lineTo(cx - r * 0.8, cy + r * 0.7);
+      } else {
+        ctx.moveTo(cx, cy + r * 0.9);
+        ctx.lineTo(cx + r * 0.8, cy - r * 0.7);
+        ctx.lineTo(cx - r * 0.8, cy - r * 0.7);
+      }
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'roach': // Wide oval (tanky)
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r * 1.1, r * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'hydralisk': // Tall oval with spines
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r * 0.7, r * 1.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Spines
+      ctx.strokeStyle = u.color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx - r * 0.7, cy - r * 0.4); ctx.lineTo(cx - r * 1.1, cy - r * 0.9);
+      ctx.moveTo(cx + r * 0.7, cy - r * 0.4); ctx.lineTo(cx + r * 1.1, cy - r * 0.9);
+      ctx.stroke();
+      break;
+    case 'baneling': // Circle with spikes (explosive)
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      // Glow
+      ctx.fillStyle = 'rgba(100, 255, 100, 0.3)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'ultralisk': // Large rounded rect with horns
+      roundRect(ctx, cx - r, cy - r * 0.8, r * 2, r * 1.6, 5, true, false);
+      // Horns (kaiser blades)
+      ctx.fillStyle = '#ffccaa';
+      ctx.beginPath();
+      ctx.moveTo(cx - r, cy - r * 0.5);
+      ctx.lineTo(cx - r * 1.4, cy - r * 1.2);
+      ctx.lineTo(cx - r * 0.5, cy - r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx + r, cy - r * 0.5);
+      ctx.lineTo(cx + r * 1.4, cy - r * 1.2);
+      ctx.lineTo(cx + r * 0.5, cy - r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'drone': // Pentagon (worker)
+      drawPolygon(ctx, cx, cy, r, 5, u.color);
+      break;
+    default:
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+  }
+}
+
+function drawUnitOutline(u, cx, cy, r) {
+  switch (u.type) {
+    case 'marauder':
+      roundRect(ctx, cx - r, cy - r, r * 2, r * 2, 4, false, true);
+      break;
+    case 'siegetank':
+      ctx.strokeRect(cx - r * 1.1, cy - r * 0.7, r * 2.2, r * 1.4);
+      break;
+    case 'ghost': case 'stalker':
+      ctx.beginPath();
+      if (u.type === 'ghost') {
+        ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r * 0.8, cy);
+        ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r * 0.8, cy);
+      } else {
+        ctx.moveTo(cx, cy - r * 1.1); ctx.lineTo(cx + r * 0.7, cy);
+        ctx.lineTo(cx, cy + r * 1.1); ctx.lineTo(cx - r * 0.7, cy);
+      }
+      ctx.closePath(); ctx.stroke();
+      break;
+    case 'zealot': case 'zergling':
+      // Triangle outlines handled by default arc
+      ctx.beginPath(); ctx.arc(cx, cy, r * 0.9, 0, Math.PI * 2); ctx.stroke();
+      break;
+    case 'roach':
+      ctx.beginPath(); ctx.ellipse(cx, cy, r * 1.1, r * 0.8, 0, 0, Math.PI * 2); ctx.stroke();
+      break;
+    case 'hydralisk':
+      ctx.beginPath(); ctx.ellipse(cx, cy, r * 0.7, r * 1.1, 0, 0, Math.PI * 2); ctx.stroke();
+      break;
+    case 'ultralisk':
+      roundRect(ctx, cx - r, cy - r * 0.8, r * 2, r * 1.6, 5, false, true);
+      break;
+    default:
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+function drawPolygon(ctx, cx, cy, r, sides, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < sides; i++) {
+    const angle = (Math.PI * 2 / sides) * i - Math.PI / 2;
+    const px = cx + Math.cos(angle) * r;
+    const py = cy + Math.sin(angle) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawStar(ctx, cx, cy, r, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const angle = (Math.PI * 2 / 10) * i - Math.PI / 2;
+    const rad = i % 2 === 0 ? r : r * 0.5;
+    const px = cx + Math.cos(angle) * rad;
+    const py = cy + Math.sin(angle) * rad;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 function drawHUD() {
