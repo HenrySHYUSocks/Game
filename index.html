@@ -799,37 +799,27 @@ function drawUnit(u) {
   const cx = u.x;
   const cy = u.y + bob;
   const r = u.r;
+  const dir = u.team === 'player' ? -1 : 1; // -1 = facing up, 1 = facing down
 
   // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();
-  ctx.ellipse(cx + 1, cy + r * 0.5 + 1, r * 0.8, r * 0.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx + 1, cy + r * 0.6 + 2, r * 1.0, r * 0.4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Draw unit shape based on type
-  drawUnitShape(u, cx, cy, r);
-
-  // Outline
-  ctx.strokeStyle = u.team === 'player' ? '#fff' : '#000';
-  ctx.lineWidth = 1.2;
-  drawUnitOutline(u, cx, cy, r);
+  // Draw SC2-accurate unit
+  ctx.save();
+  drawSC2Unit(u.type, cx, cy, r, dir, u.color, u.team, u.animFrame);
+  ctx.restore();
 
   // Shield indicator (protoss)
   if (u.maxShield > 0 && u.shield > 0) {
     ctx.strokeStyle = 'rgba(100, 200, 255, 0.7)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(cx, cy, r + 3, 0, Math.PI * 2 * (u.shield / u.maxShield));
+    ctx.arc(cx, cy, r + 3, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * (u.shield / u.maxShield));
     ctx.stroke();
   }
-
-  // Unit icon/letter
-  ctx.fillStyle = u.team === 'player' ? '#fff' : 'rgba(255,255,255,0.8)';
-  ctx.font = `bold ${Math.max(7, r - 1)}px monospace`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const icon = getUnitIcon(u.type);
-  ctx.fillText(icon, cx, cy);
 
   // HP bar
   if (u.hp < u.maxHp) {
@@ -842,194 +832,990 @@ function drawUnit(u) {
   }
 }
 
-function getUnitIcon(type) {
-  const icons = {
-    marine: 'M', marauder: 'R', medic: '+', siegetank: 'S', ghost: 'G', scv: 'W',
-    zealot: 'Z', stalker: 'K', sentry: 'N', hightemplar: 'H', immortal: 'I', probe: 'W',
-    zergling: 'z', roach: 'r', hydralisk: 'h', baneling: 'b', ultralisk: 'U', drone: 'W',
-  };
-  return icons[type] || '?';
-}
-
-function drawUnitShape(u, cx, cy, r) {
-  ctx.fillStyle = u.color;
-  switch (u.type) {
-    // --- TERRAN ---
-    case 'marine': // Circle
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    case 'marauder': // Rounded square (big & beefy)
-      roundRect(ctx, cx - r, cy - r, r * 2, r * 2, 4, true, false);
-      break;
-    case 'medic': // Circle with cross aura
-      ctx.fillStyle = '#225588';
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = u.color;
-      ctx.fillRect(cx - r * 0.6, cy - r * 0.2, r * 1.2, r * 0.4);
-      ctx.fillRect(cx - r * 0.2, cy - r * 0.6, r * 0.4, r * 1.2);
-      break;
-    case 'siegetank': // Wide rectangle (tank treads)
-      ctx.fillRect(cx - r * 1.1, cy - r * 0.7, r * 2.2, r * 1.4);
-      // Barrel
-      ctx.fillStyle = '#445577';
-      ctx.fillRect(cx - 2, cy - r * 0.9, 4, r * 0.6);
-      break;
-    case 'ghost': // Diamond (stealthy)
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - r);
-      ctx.lineTo(cx + r * 0.8, cy);
-      ctx.lineTo(cx, cy + r);
-      ctx.lineTo(cx - r * 0.8, cy);
-      ctx.closePath();
-      ctx.fill();
-      break;
-    case 'scv': // Pentagon (worker)
-      drawPolygon(ctx, cx, cy, r, 5, u.color);
-      break;
-    // --- PROTOSS ---
-    case 'zealot': // Triangle pointing forward (aggressive melee)
-      ctx.beginPath();
-      if (u.team === 'player') {
-        ctx.moveTo(cx, cy - r);
-        ctx.lineTo(cx + r, cy + r * 0.8);
-        ctx.lineTo(cx - r, cy + r * 0.8);
-      } else {
-        ctx.moveTo(cx, cy + r);
-        ctx.lineTo(cx + r, cy - r * 0.8);
-        ctx.lineTo(cx - r, cy - r * 0.8);
-      }
-      ctx.closePath();
-      ctx.fill();
-      break;
-    case 'stalker': // Tall diamond
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - r * 1.1);
-      ctx.lineTo(cx + r * 0.7, cy);
-      ctx.lineTo(cx, cy + r * 1.1);
-      ctx.lineTo(cx - r * 0.7, cy);
-      ctx.closePath();
-      ctx.fill();
-      break;
-    case 'sentry': // Hexagon (support/shield)
-      drawPolygon(ctx, cx, cy, r, 6, u.color);
-      break;
-    case 'hightemplar': // Star shape (powerful caster)
-      drawStar(ctx, cx, cy, r, u.color);
-      break;
-    case 'immortal': // Octagon (heavy/armored)
-      drawPolygon(ctx, cx, cy, r, 8, u.color);
-      break;
-    case 'probe': // Small hexagon (worker)
-      drawPolygon(ctx, cx, cy, r, 6, u.color);
-      break;
-    // --- ZERG ---
-    case 'zergling': // Small triangle (fast swarm)
-      ctx.beginPath();
-      if (u.team === 'player') {
-        ctx.moveTo(cx, cy - r * 0.9);
-        ctx.lineTo(cx + r * 0.8, cy + r * 0.7);
-        ctx.lineTo(cx - r * 0.8, cy + r * 0.7);
-      } else {
-        ctx.moveTo(cx, cy + r * 0.9);
-        ctx.lineTo(cx + r * 0.8, cy - r * 0.7);
-        ctx.lineTo(cx - r * 0.8, cy - r * 0.7);
-      }
-      ctx.closePath();
-      ctx.fill();
-      break;
-    case 'roach': // Wide oval (tanky)
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, r * 1.1, r * 0.8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    case 'hydralisk': // Tall oval with spines
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, r * 0.7, r * 1.1, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Spines
-      ctx.strokeStyle = u.color;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(cx - r * 0.7, cy - r * 0.4); ctx.lineTo(cx - r * 1.1, cy - r * 0.9);
-      ctx.moveTo(cx + r * 0.7, cy - r * 0.4); ctx.lineTo(cx + r * 1.1, cy - r * 0.9);
-      ctx.stroke();
-      break;
-    case 'baneling': // Circle with spikes (explosive)
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-      // Glow
-      ctx.fillStyle = 'rgba(100, 255, 100, 0.3)';
-      ctx.beginPath();
-      ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    case 'ultralisk': // Large rounded rect with horns
-      roundRect(ctx, cx - r, cy - r * 0.8, r * 2, r * 1.6, 5, true, false);
-      // Horns (kaiser blades)
-      ctx.fillStyle = '#ffccaa';
-      ctx.beginPath();
-      ctx.moveTo(cx - r, cy - r * 0.5);
-      ctx.lineTo(cx - r * 1.4, cy - r * 1.2);
-      ctx.lineTo(cx - r * 0.5, cy - r * 0.3);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(cx + r, cy - r * 0.5);
-      ctx.lineTo(cx + r * 1.4, cy - r * 1.2);
-      ctx.lineTo(cx + r * 0.5, cy - r * 0.3);
-      ctx.closePath();
-      ctx.fill();
-      break;
-    case 'drone': // Pentagon (worker)
-      drawPolygon(ctx, cx, cy, r, 5, u.color);
-      break;
+// ---- SC2 Unit Drawing System ----
+function drawSC2Unit(type, cx, cy, r, dir, color, team, anim) {
+  switch(type) {
+    case 'marine': drawMarine(cx, cy, r, dir, color, anim); break;
+    case 'marauder': drawMarauder(cx, cy, r, dir, color, anim); break;
+    case 'medic': drawMedicUnit(cx, cy, r, dir, color, anim); break;
+    case 'siegetank': drawSiegeTank(cx, cy, r, dir, color, anim); break;
+    case 'ghost': drawGhost(cx, cy, r, dir, color, anim); break;
+    case 'scv': drawSCV(cx, cy, r, dir, color, anim); break;
+    case 'zealot': drawZealot(cx, cy, r, dir, color, anim); break;
+    case 'stalker': drawStalker(cx, cy, r, dir, color, anim); break;
+    case 'sentry': drawSentryUnit(cx, cy, r, dir, color, anim); break;
+    case 'hightemplar': drawHighTemplar(cx, cy, r, dir, color, anim); break;
+    case 'immortal': drawImmortal(cx, cy, r, dir, color, anim); break;
+    case 'probe': drawProbeUnit(cx, cy, r, dir, color, anim); break;
+    case 'zergling': drawZergling(cx, cy, r, dir, color, anim); break;
+    case 'roach': drawRoach(cx, cy, r, dir, color, anim); break;
+    case 'hydralisk': drawHydralisk(cx, cy, r, dir, color, anim); break;
+    case 'baneling': drawBaneling(cx, cy, r, dir, color, anim); break;
+    case 'ultralisk': drawUltralisk(cx, cy, r, dir, color, anim); break;
+    case 'drone': drawDroneUnit(cx, cy, r, dir, color, anim); break;
     default:
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
   }
 }
 
-function drawUnitOutline(u, cx, cy, r) {
-  switch (u.type) {
-    case 'marauder':
-      roundRect(ctx, cx - r, cy - r, r * 2, r * 2, 4, false, true);
-      break;
-    case 'siegetank':
-      ctx.strokeRect(cx - r * 1.1, cy - r * 0.7, r * 2.2, r * 1.4);
-      break;
-    case 'ghost': case 'stalker':
-      ctx.beginPath();
-      if (u.type === 'ghost') {
-        ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r * 0.8, cy);
-        ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r * 0.8, cy);
-      } else {
-        ctx.moveTo(cx, cy - r * 1.1); ctx.lineTo(cx + r * 0.7, cy);
-        ctx.lineTo(cx, cy + r * 1.1); ctx.lineTo(cx - r * 0.7, cy);
-      }
-      ctx.closePath(); ctx.stroke();
-      break;
-    case 'zealot': case 'zergling':
-      // Triangle outlines handled by default arc
-      ctx.beginPath(); ctx.arc(cx, cy, r * 0.9, 0, Math.PI * 2); ctx.stroke();
-      break;
-    case 'roach':
-      ctx.beginPath(); ctx.ellipse(cx, cy, r * 1.1, r * 0.8, 0, 0, Math.PI * 2); ctx.stroke();
-      break;
-    case 'hydralisk':
-      ctx.beginPath(); ctx.ellipse(cx, cy, r * 0.7, r * 1.1, 0, 0, Math.PI * 2); ctx.stroke();
-      break;
-    case 'ultralisk':
-      roundRect(ctx, cx - r, cy - r * 0.8, r * 2, r * 1.6, 5, false, true);
-      break;
-    default:
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+// Helper: darken/lighten color
+function shadeColor(col, amt) {
+  let c = col.replace('#','');
+  if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+  let r = Math.min(255, Math.max(0, parseInt(c.substring(0,2),16) + amt));
+  let g = Math.min(255, Math.max(0, parseInt(c.substring(2,4),16) + amt));
+  let b = Math.min(255, Math.max(0, parseInt(c.substring(4,6),16) + amt));
+  return '#' + (r<16?'0':'') + r.toString(16) + (g<16?'0':'') + g.toString(16) + (b<16?'0':'') + b.toString(16);
+}
+
+// ========== TERRAN UNITS ==========
+
+function drawMarine(cx, cy, r, dir, color, anim) {
+  const s = r / 8; // scale factor (default r=8)
+  // Legs
+  ctx.fillStyle = shadeColor(color, -60);
+  ctx.fillRect(cx - s*3, cy + s*4*dir, s*2, s*5*dir);
+  ctx.fillRect(cx + s*1, cy + s*4*dir, s*2, s*5*dir);
+  // Torso - power armor (rounded rect body)
+  ctx.fillStyle = shadeColor(color, -30);
+  roundRect(ctx, cx - s*5, cy - s*5, s*10, s*10, s*2, true, false);
+  // Armor plating highlight
+  ctx.fillStyle = color;
+  roundRect(ctx, cx - s*4, cy - s*4, s*8, s*7, s*2, true, false);
+  // Shoulder pads
+  ctx.fillStyle = shadeColor(color, 20);
+  ctx.beginPath(); ctx.arc(cx - s*5, cy - s*1, s*3, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*5, cy - s*1, s*3, 0, Math.PI*2); ctx.fill();
+  // Visor
+  ctx.fillStyle = '#00ccff';
+  ctx.fillRect(cx - s*3, cy - s*3 + s*dir, s*6, s*2);
+  ctx.fillStyle = 'rgba(0,220,255,0.4)';
+  ctx.fillRect(cx - s*3, cy - s*3 + s*dir, s*6, s*2);
+  // Rifle barrel (extending forward)
+  ctx.fillStyle = '#445566';
+  ctx.fillRect(cx + s*3, cy - s*1, s*2, -s*8*dir);
+  // Rifle muzzle
+  ctx.fillStyle = '#667788';
+  ctx.fillRect(cx + s*2.5, cy - s*1 - s*8*dir, s*3, s*2);
+  // Outline
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 0.5;
+  roundRect(ctx, cx - s*5, cy - s*5, s*10, s*10, s*2, false, true);
+}
+
+function drawMarauder(cx, cy, r, dir, color, anim) {
+  const s = r / 10;
+  // Legs (thick)
+  ctx.fillStyle = shadeColor(color, -70);
+  ctx.fillRect(cx - s*4, cy + s*4*dir, s*3, s*6*dir);
+  ctx.fillRect(cx + s*1, cy + s*4*dir, s*3, s*6*dir);
+  // Heavy torso
+  ctx.fillStyle = shadeColor(color, -40);
+  roundRect(ctx, cx - s*7, cy - s*6, s*14, s*12, s*3, true, false);
+  // Armor plates
+  ctx.fillStyle = color;
+  roundRect(ctx, cx - s*6, cy - s*5, s*12, s*9, s*2, true, false);
+  // Center armor line
+  ctx.strokeStyle = shadeColor(color, -50);
+  ctx.lineWidth = s*1;
+  ctx.beginPath(); ctx.moveTo(cx, cy - s*5); ctx.lineTo(cx, cy + s*4); ctx.stroke();
+  // Heavy shoulder armor
+  ctx.fillStyle = shadeColor(color, 15);
+  roundRect(ctx, cx - s*9, cy - s*4, s*5, s*6, s*2, true, false);
+  roundRect(ctx, cx + s*4, cy - s*4, s*5, s*6, s*2, true, false);
+  // Grenade launchers (two barrels per side)
+  ctx.fillStyle = '#556677';
+  ctx.fillRect(cx - s*8, cy - s*2, s*2, -s*7*dir);
+  ctx.fillRect(cx + s*6, cy - s*2, s*2, -s*7*dir);
+  // Launcher tips
+  ctx.fillStyle = '#778899';
+  ctx.beginPath(); ctx.arc(cx - s*7, cy - s*2 - s*7*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*7, cy - s*2 - s*7*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+  // Visor (red)
+  ctx.fillStyle = '#ff3300';
+  ctx.fillRect(cx - s*4, cy - s*3, s*8, s*2);
+}
+
+function drawMedicUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 8;
+  // Legs
+  ctx.fillStyle = '#334455';
+  ctx.fillRect(cx - s*2.5, cy + s*3*dir, s*2, s*5*dir);
+  ctx.fillRect(cx + s*0.5, cy + s*3*dir, s*2, s*5*dir);
+  // Body (slimmer than marine)
+  ctx.fillStyle = '#ccddee';
+  roundRect(ctx, cx - s*4, cy - s*4, s*8, s*8, s*2, true, false);
+  // White armor with team accent
+  ctx.fillStyle = '#eef4ff';
+  roundRect(ctx, cx - s*3, cy - s*3, s*6, s*6, s*1.5, true, false);
+  // Red cross
+  ctx.fillStyle = '#ff2222';
+  ctx.fillRect(cx - s*0.7, cy - s*2.5, s*1.4, s*5);
+  ctx.fillRect(cx - s*2.5, cy - s*0.7, s*5, s*1.4);
+  // Medical backpack
+  ctx.fillStyle = '#99aabb';
+  roundRect(ctx, cx - s*2, cy + s*2*dir, s*4, s*3*dir, s*1, true, false);
+  // Healing device arm
+  ctx.strokeStyle = '#66ffaa';
+  ctx.lineWidth = s*1;
+  ctx.beginPath();
+  ctx.moveTo(cx + s*4, cy);
+  ctx.lineTo(cx + s*7, cy - s*4*dir);
+  ctx.stroke();
+  // Healing tip glow
+  const glowR = s*2 + Math.sin(anim*3)*s*0.5;
+  ctx.fillStyle = 'rgba(100,255,150,0.5)';
+  ctx.beginPath(); ctx.arc(cx + s*7, cy - s*4*dir, glowR, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#66ff99';
+  ctx.beginPath(); ctx.arc(cx + s*7, cy - s*4*dir, s*1, 0, Math.PI*2); ctx.fill();
+}
+
+function drawSiegeTank(cx, cy, r, dir, color, anim) {
+  const s = r / 14;
+  // Track left
+  ctx.fillStyle = '#333344';
+  roundRect(ctx, cx - s*13, cy - s*8, s*4, s*16, s*2, true, false);
+  // Track right
+  roundRect(ctx, cx + s*9, cy - s*8, s*4, s*16, s*2, true, false);
+  // Track detail lines
+  ctx.strokeStyle = '#444455';
+  ctx.lineWidth = s*0.8;
+  for (let i = -6; i <= 6; i += 3) {
+    ctx.beginPath(); ctx.moveTo(cx - s*13, cy + s*i); ctx.lineTo(cx - s*9, cy + s*i); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + s*9, cy + s*i); ctx.lineTo(cx + s*13, cy + s*i); ctx.stroke();
   }
+  // Hull (main body)
+  ctx.fillStyle = shadeColor(color, -30);
+  roundRect(ctx, cx - s*9, cy - s*7, s*18, s*14, s*2, true, false);
+  // Upper hull detail
+  ctx.fillStyle = color;
+  roundRect(ctx, cx - s*7, cy - s*5, s*14, s*10, s*2, true, false);
+  // Armor lines
+  ctx.strokeStyle = shadeColor(color, -50);
+  ctx.lineWidth = s*0.6;
+  ctx.beginPath(); ctx.moveTo(cx - s*7, cy); ctx.lineTo(cx + s*7, cy); ctx.stroke();
+  // Turret base (circle)
+  ctx.fillStyle = shadeColor(color, 10);
+  ctx.beginPath(); ctx.arc(cx, cy - s*1, s*5, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = shadeColor(color, -20);
+  ctx.lineWidth = s*0.8;
+  ctx.beginPath(); ctx.arc(cx, cy - s*1, s*5, 0, Math.PI*2); ctx.stroke();
+  // Main cannon barrel
+  ctx.fillStyle = '#556677';
+  ctx.save();
+  ctx.translate(cx, cy - s*1);
+  ctx.fillRect(-s*1.5, 0, s*3, -s*14*dir);
+  // Cannon muzzle brake
+  ctx.fillStyle = '#667788';
+  ctx.fillRect(-s*2.5, -s*14*dir, s*5, -s*2*dir);
+  ctx.restore();
+  // Turret top detail
+  ctx.fillStyle = shadeColor(color, 30);
+  ctx.beginPath(); ctx.arc(cx, cy - s*1, s*2.5, 0, Math.PI*2); ctx.fill();
+}
+
+function drawGhost(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  const shimmer = Math.sin(anim * 4) * 0.15 + 0.65;
+  ctx.globalAlpha = shimmer;
+  // Legs
+  ctx.fillStyle = shadeColor(color, -40);
+  ctx.fillRect(cx - s*2, cy + s*3*dir, s*1.5, s*5*dir);
+  ctx.fillRect(cx + s*0.5, cy + s*3*dir, s*1.5, s*5*dir);
+  // Slim body
+  ctx.fillStyle = shadeColor(color, -20);
+  ctx.beginPath();
+  ctx.moveTo(cx - s*3, cy + s*4);
+  ctx.lineTo(cx - s*4, cy - s*2);
+  ctx.lineTo(cx - s*2, cy - s*5);
+  ctx.lineTo(cx + s*2, cy - s*5);
+  ctx.lineTo(cx + s*4, cy - s*2);
+  ctx.lineTo(cx + s*3, cy + s*4);
+  ctx.closePath();
+  ctx.fill();
+  // Suit detail
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*2, cy + s*3);
+  ctx.lineTo(cx - s*3, cy - s*1);
+  ctx.lineTo(cx - s*1.5, cy - s*4);
+  ctx.lineTo(cx + s*1.5, cy - s*4);
+  ctx.lineTo(cx + s*3, cy - s*1);
+  ctx.lineTo(cx + s*2, cy + s*3);
+  ctx.closePath();
+  ctx.fill();
+  // Sniper rifle (long barrel)
+  ctx.fillStyle = '#445566';
+  ctx.fillRect(cx + s*2, cy + s*1, s*1.5, -s*12*dir);
+  // Scope
+  ctx.fillStyle = '#ff0000';
+  ctx.beginPath(); ctx.arc(cx + s*2.75, cy + s*1 - s*10*dir, s*1, 0, Math.PI*2); ctx.fill();
+  // Visor (red glow)
+  ctx.fillStyle = '#ff0044';
+  ctx.beginPath(); ctx.arc(cx - s*1, cy - s*3, s*1.2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1, cy - s*3, s*1.2, 0, Math.PI*2); ctx.fill();
+  // Cloak shimmer outline
+  ctx.strokeStyle = 'rgba(150,200,255,0.4)';
+  ctx.lineWidth = s*0.5;
+  ctx.setLineDash([s*2, s*2]);
+  ctx.beginPath(); ctx.arc(cx, cy, r + s*2, 0, Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+}
+
+function drawSCV(cx, cy, r, dir, color, anim) {
+  const s = r / 8;
+  // Mechanical legs (inverted V)
+  ctx.strokeStyle = '#556666';
+  ctx.lineWidth = s*2;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*4, cy + s*7*dir);
+  ctx.lineTo(cx - s*2, cy + s*2*dir);
+  ctx.lineTo(cx, cy + s*4*dir);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*4, cy + s*7*dir);
+  ctx.lineTo(cx + s*2, cy + s*2*dir);
+  ctx.lineTo(cx, cy + s*4*dir);
+  ctx.stroke();
+  // Joint circles
+  ctx.fillStyle = '#667777';
+  ctx.beginPath(); ctx.arc(cx - s*2, cy + s*2*dir, s*1, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*2, cy + s*2*dir, s*1, 0, Math.PI*2); ctx.fill();
+  // Boxy body
+  ctx.fillStyle = shadeColor(color, -20);
+  roundRect(ctx, cx - s*5, cy - s*5, s*10, s*8, s*2, true, false);
+  // Cockpit window
+  ctx.fillStyle = '#88ddff';
+  ctx.beginPath();
+  ctx.arc(cx, cy - s*3, s*2.5, Math.PI, Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(150,230,255,0.5)';
+  ctx.beginPath();
+  ctx.arc(cx, cy - s*3, s*2, Math.PI*1.1, Math.PI*1.9);
+  ctx.fill();
+  // Body panel
+  ctx.fillStyle = color;
+  roundRect(ctx, cx - s*4, cy - s*1, s*8, s*4, s*1, true, false);
+  // Drill arm
+  ctx.fillStyle = '#778888';
+  ctx.save();
+  ctx.translate(cx - s*5, cy);
+  const drillAngle = Math.sin(anim * 5) * 0.2;
+  ctx.rotate(drillAngle);
+  ctx.fillRect(-s*6, -s*1, s*6, s*2);
+  // Drill tip (cone)
+  ctx.fillStyle = '#aabbbb';
+  ctx.beginPath();
+  ctx.moveTo(-s*6, -s*2);
+  ctx.lineTo(-s*9, 0);
+  ctx.lineTo(-s*6, s*2);
+  ctx.closePath();
+  ctx.fill();
+  // Drill lines
+  ctx.strokeStyle = '#889999';
+  ctx.lineWidth = s*0.5;
+  ctx.beginPath();
+  ctx.moveTo(-s*7, -s*1.2); ctx.lineTo(-s*8.5, 0);
+  ctx.moveTo(-s*7, s*1.2); ctx.lineTo(-s*8.5, 0);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ========== PROTOSS UNITS ==========
+
+function drawZealot(cx, cy, r, dir, color, anim) {
+  const s = r / 10;
+  // Legs with armor plates
+  ctx.fillStyle = shadeColor(color, -50);
+  // Left leg
+  ctx.beginPath();
+  ctx.moveTo(cx - s*3, cy + s*3*dir);
+  ctx.lineTo(cx - s*5, cy + s*8*dir);
+  ctx.lineTo(cx - s*2, cy + s*8*dir);
+  ctx.lineTo(cx - s*1, cy + s*3*dir);
+  ctx.closePath();
+  ctx.fill();
+  // Right leg
+  ctx.beginPath();
+  ctx.moveTo(cx + s*1, cy + s*3*dir);
+  ctx.lineTo(cx + s*2, cy + s*8*dir);
+  ctx.lineTo(cx + s*5, cy + s*8*dir);
+  ctx.lineTo(cx + s*3, cy + s*3*dir);
+  ctx.closePath();
+  ctx.fill();
+  // Angular torso (triangular chest plate)
+  ctx.fillStyle = shadeColor(color, -20);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*6);
+  ctx.lineTo(cx + s*6, cy + s*1);
+  ctx.lineTo(cx + s*4, cy + s*4);
+  ctx.lineTo(cx - s*4, cy + s*4);
+  ctx.lineTo(cx - s*6, cy + s*1);
+  ctx.closePath();
+  ctx.fill();
+  // Chest armor detail
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*4);
+  ctx.lineTo(cx + s*4, cy + s*1);
+  ctx.lineTo(cx + s*3, cy + s*3);
+  ctx.lineTo(cx - s*3, cy + s*3);
+  ctx.lineTo(cx - s*4, cy + s*1);
+  ctx.closePath();
+  ctx.fill();
+  // Eyes (two glowing dots)
+  ctx.fillStyle = '#00ccff';
+  ctx.beginPath(); ctx.arc(cx - s*1.5, cy - s*3, s*0.8, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1.5, cy - s*3, s*0.8, 0, Math.PI*2); ctx.fill();
+  // Psi blades (glowing, animated)
+  const bladeFlicker = Math.sin(anim * 8) * s*0.5;
+  const bladeLen = s*10 + bladeFlicker;
+  // Left blade
+  ctx.strokeStyle = '#00eeff';
+  ctx.lineWidth = s*1.5;
+  ctx.shadowColor = '#00eeff';
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*6, cy + s*1);
+  ctx.lineTo(cx - s*6 - s*2, cy + s*1 - bladeLen*dir);
+  ctx.stroke();
+  // Right blade
+  ctx.beginPath();
+  ctx.moveTo(cx + s*6, cy + s*1);
+  ctx.lineTo(cx + s*6 + s*2, cy + s*1 - bladeLen*dir);
+  ctx.stroke();
+  // Blade glow
+  ctx.fillStyle = 'rgba(0,238,255,0.3)';
+  ctx.beginPath(); ctx.arc(cx - s*7, cy + s*1 - bladeLen*dir*0.5, s*2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*7, cy + s*1 - bladeLen*dir*0.5, s*2, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+function drawStalker(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  // Four legs (X pattern)
+  ctx.strokeStyle = shadeColor(color, -40);
+  ctx.lineWidth = s*1.5;
+  // Front-left
+  ctx.beginPath(); ctx.moveTo(cx - s*3, cy - s*2); ctx.lineTo(cx - s*7, cy - s*7*dir); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - s*7, cy - s*7*dir); ctx.lineTo(cx - s*9, cy - s*5*dir); ctx.stroke();
+  // Front-right
+  ctx.beginPath(); ctx.moveTo(cx + s*3, cy - s*2); ctx.lineTo(cx + s*7, cy - s*7*dir); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + s*7, cy - s*7*dir); ctx.lineTo(cx + s*9, cy - s*5*dir); ctx.stroke();
+  // Back-left
+  ctx.beginPath(); ctx.moveTo(cx - s*3, cy + s*2); ctx.lineTo(cx - s*7, cy + s*6*dir); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - s*7, cy + s*6*dir); ctx.lineTo(cx - s*8, cy + s*8*dir); ctx.stroke();
+  // Back-right
+  ctx.beginPath(); ctx.moveTo(cx + s*3, cy + s*2); ctx.lineTo(cx + s*7, cy + s*6*dir); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + s*7, cy + s*6*dir); ctx.lineTo(cx + s*8, cy + s*8*dir); ctx.stroke();
+  // Leg joint circles
+  ctx.fillStyle = shadeColor(color, -20);
+  ctx.beginPath(); ctx.arc(cx - s*7, cy - s*7*dir, s*1, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*7, cy - s*7*dir, s*1, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx - s*7, cy + s*6*dir, s*1, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*7, cy + s*6*dir, s*1, 0, Math.PI*2); ctx.fill();
+  // Central body (diamond/oval)
+  ctx.fillStyle = shadeColor(color, -15);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*5);
+  ctx.quadraticCurveTo(cx + s*5, cy, cx, cy + s*5);
+  ctx.quadraticCurveTo(cx - s*5, cy, cx, cy - s*5);
+  ctx.fill();
+  // Body core
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*3);
+  ctx.quadraticCurveTo(cx + s*3, cy, cx, cy + s*3);
+  ctx.quadraticCurveTo(cx - s*3, cy, cx, cy - s*3);
+  ctx.fill();
+  // Blue energy core
+  ctx.fillStyle = '#0088ff';
+  ctx.beginPath(); ctx.arc(cx, cy, s*1.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'rgba(0,150,255,0.3)';
+  ctx.beginPath(); ctx.arc(cx, cy, s*3, 0, Math.PI*2); ctx.fill();
+  // Particle disruptor barrel (forward)
+  ctx.fillStyle = '#556677';
+  ctx.fillRect(cx - s*1, cy - s*2, s*2, -s*6*dir);
+  ctx.fillStyle = '#0088ff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*2 - s*6*dir, s*1.2, 0, Math.PI*2); ctx.fill();
+}
+
+function drawSentryUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 8;
+  // Hover glow
+  ctx.fillStyle = 'rgba(255,230,100,0.15)';
+  ctx.beginPath(); ctx.ellipse(cx, cy + s*5, s*6, s*2, 0, 0, Math.PI*2); ctx.fill();
+  // Side fins
+  ctx.fillStyle = shadeColor(color, -30);
+  // Left fin
+  ctx.beginPath();
+  ctx.moveTo(cx - s*4, cy - s*2);
+  ctx.lineTo(cx - s*7, cy);
+  ctx.lineTo(cx - s*7, cy + s*3);
+  ctx.lineTo(cx - s*4, cy + s*2);
+  ctx.closePath();
+  ctx.fill();
+  // Right fin
+  ctx.beginPath();
+  ctx.moveTo(cx + s*4, cy - s*2);
+  ctx.lineTo(cx + s*7, cy);
+  ctx.lineTo(cx + s*7, cy + s*3);
+  ctx.lineTo(cx + s*4, cy + s*2);
+  ctx.closePath();
+  ctx.fill();
+  // Main body (oval)
+  ctx.fillStyle = shadeColor(color, -10);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*5, s*4, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Body accent
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*3.5, s*3, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Central eye
+  ctx.fillStyle = '#00ddff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*1, s*1.5, 0, Math.PI*2); ctx.fill();
+  ctx.shadowColor = '#00ddff';
+  ctx.shadowBlur = 4;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*1, s*0.7, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+  // Shield projector arc (below)
+  ctx.strokeStyle = 'rgba(100,200,255,0.5)';
+  ctx.lineWidth = s*1;
+  const shieldPulse = Math.sin(anim * 3) * 0.3 + 0.7;
+  ctx.globalAlpha = shieldPulse;
+  ctx.beginPath();
+  ctx.arc(cx, cy + s*2, s*4, 0, Math.PI);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function drawHighTemplar(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  // Energy aura
+  const auraSize = s*8 + Math.sin(anim*3)*s*1;
+  ctx.fillStyle = 'rgba(100,100,255,0.12)';
+  ctx.beginPath(); ctx.arc(cx, cy, auraSize, 0, Math.PI*2); ctx.fill();
+  // Robe (wide at bottom, narrow at top)
+  ctx.fillStyle = shadeColor(color, -40);
+  ctx.beginPath();
+  ctx.moveTo(cx - s*2, cy - s*6);
+  ctx.lineTo(cx + s*2, cy - s*6);
+  ctx.lineTo(cx + s*5, cy + s*5);
+  ctx.lineTo(cx - s*5, cy + s*5);
+  ctx.closePath();
+  ctx.fill();
+  // Robe inner
+  ctx.fillStyle = shadeColor(color, -15);
+  ctx.beginPath();
+  ctx.moveTo(cx - s*1.5, cy - s*5);
+  ctx.lineTo(cx + s*1.5, cy - s*5);
+  ctx.lineTo(cx + s*4, cy + s*4);
+  ctx.lineTo(cx - s*4, cy + s*4);
+  ctx.closePath();
+  ctx.fill();
+  // Hood
+  ctx.fillStyle = shadeColor(color, -30);
+  ctx.beginPath();
+  ctx.arc(cx, cy - s*5, s*3, Math.PI, Math.PI*2);
+  ctx.fill();
+  // Glowing eyes under hood
+  ctx.fillStyle = '#88aaff';
+  ctx.beginPath(); ctx.arc(cx - s*1, cy - s*5, s*0.7, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1, cy - s*5, s*0.7, 0, Math.PI*2); ctx.fill();
+  // Psionic energy hands
+  ctx.shadowColor = '#8888ff';
+  ctx.shadowBlur = 5;
+  const handGlow = Math.sin(anim*5)*s*0.8;
+  // Left hand energy
+  ctx.fillStyle = 'rgba(130,130,255,0.7)';
+  ctx.beginPath(); ctx.arc(cx - s*4, cy - s*1, s*2 + handGlow, 0, Math.PI*2); ctx.fill();
+  // Right hand energy
+  ctx.beginPath(); ctx.arc(cx + s*4, cy - s*1, s*2 - handGlow, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+  // Lightning crackling between hands
+  ctx.strokeStyle = 'rgba(150,150,255,0.6)';
+  ctx.lineWidth = s*0.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*4, cy - s*1);
+  const midX = cx + Math.sin(anim*7)*s*2;
+  ctx.lineTo(midX, cy - s*3);
+  ctx.lineTo(cx + s*4, cy - s*1);
+  ctx.stroke();
+}
+
+function drawImmortal(cx, cy, r, dir, color, anim) {
+  const s = r / 13;
+  // Four stubby legs
+  ctx.fillStyle = shadeColor(color, -50);
+  ctx.fillRect(cx - s*10, cy + s*4*dir, s*3, s*5*dir);
+  ctx.fillRect(cx + s*7, cy + s*4*dir, s*3, s*5*dir);
+  ctx.fillRect(cx - s*7, cy + s*6*dir, s*3, s*4*dir);
+  ctx.fillRect(cx + s*4, cy + s*6*dir, s*3, s*4*dir);
+  // Large armored body
+  ctx.fillStyle = shadeColor(color, -25);
+  roundRect(ctx, cx - s*8, cy - s*6, s*16, s*12, s*3, true, false);
+  // Body core
+  ctx.fillStyle = color;
+  roundRect(ctx, cx - s*6, cy - s*4, s*12, s*8, s*2, true, false);
+  // Armor plating lines
+  ctx.strokeStyle = shadeColor(color, -45);
+  ctx.lineWidth = s*0.7;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*6, cy - s*1); ctx.lineTo(cx + s*6, cy - s*1);
+  ctx.moveTo(cx, cy - s*4); ctx.lineTo(cx, cy + s*4);
+  ctx.stroke();
+  // Two massive cannon arms
+  ctx.fillStyle = '#667788';
+  // Left cannon
+  roundRect(ctx, cx - s*13, cy - s*4, s*6, s*5, s*1, true, false);
+  ctx.fillRect(cx - s*12, cy - s*3, s*2, -s*8*dir);
+  ctx.fillStyle = '#7799aa';
+  ctx.beginPath(); ctx.arc(cx - s*11, cy - s*3 - s*8*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+  // Right cannon
+  ctx.fillStyle = '#667788';
+  roundRect(ctx, cx + s*7, cy - s*4, s*6, s*5, s*1, true, false);
+  ctx.fillRect(cx + s*10, cy - s*3, s*2, -s*8*dir);
+  ctx.fillStyle = '#7799aa';
+  ctx.beginPath(); ctx.arc(cx + s*11, cy - s*3 - s*8*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+  // Shield generator glow
+  ctx.fillStyle = 'rgba(0,150,255,0.25)';
+  ctx.beginPath(); ctx.arc(cx, cy, s*5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#3399ff';
+  ctx.beginPath(); ctx.arc(cx, cy, s*2, 0, Math.PI*2); ctx.fill();
+}
+
+function drawProbeUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 8;
+  // Hover glow/shadow
+  ctx.fillStyle = 'rgba(255,220,50,0.15)';
+  ctx.beginPath(); ctx.ellipse(cx, cy + s*5, s*4, s*1.5, 0, 0, Math.PI*2); ctx.fill();
+  // Energy trail beneath
+  const trail = Math.sin(anim*4)*s*0.5;
+  ctx.fillStyle = 'rgba(255,230,100,0.3)';
+  ctx.beginPath();
+  ctx.moveTo(cx - s*1, cy + s*3);
+  ctx.lineTo(cx, cy + s*6 + trail);
+  ctx.lineTo(cx + s*1, cy + s*3);
+  ctx.closePath();
+  ctx.fill();
+  // Diamond/pyramid body (rotated square)
+  ctx.fillStyle = shadeColor(color, -15);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*5);
+  ctx.lineTo(cx + s*5, cy);
+  ctx.lineTo(cx, cy + s*4);
+  ctx.lineTo(cx - s*5, cy);
+  ctx.closePath();
+  ctx.fill();
+  // Inner diamond
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*3.5);
+  ctx.lineTo(cx + s*3.5, cy);
+  ctx.lineTo(cx, cy + s*2.5);
+  ctx.lineTo(cx - s*3.5, cy);
+  ctx.closePath();
+  ctx.fill();
+  // Small antenna on top
+  ctx.strokeStyle = shadeColor(color, 30);
+  ctx.lineWidth = s*0.6;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*5);
+  ctx.lineTo(cx, cy - s*7);
+  ctx.stroke();
+  ctx.fillStyle = '#88ddff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*7, s*0.8, 0, Math.PI*2); ctx.fill();
+  // Pulsing energy core
+  const pulse = Math.sin(anim*5)*s*0.5 + s*1.5;
+  ctx.fillStyle = 'rgba(0,200,255,0.5)';
+  ctx.beginPath(); ctx.arc(cx, cy - s*0.5, pulse, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#44ddff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*0.5, s*0.8, 0, Math.PI*2); ctx.fill();
+}
+
+// ========== ZERG UNITS ==========
+
+function drawZergling(cx, cy, r, dir, color, anim) {
+  const s = r / 6;
+  // Four legs (angled out, animated)
+  ctx.strokeStyle = shadeColor(color, -40);
+  ctx.lineWidth = s*1;
+  const legAnim = Math.sin(anim*8)*s*1;
+  // Front-left
+  ctx.beginPath(); ctx.moveTo(cx - s*2, cy - s*1*dir); ctx.lineTo(cx - s*5 - legAnim, cy - s*4*dir); ctx.stroke();
+  // Front-right
+  ctx.beginPath(); ctx.moveTo(cx + s*2, cy - s*1*dir); ctx.lineTo(cx + s*5 + legAnim, cy - s*4*dir); ctx.stroke();
+  // Back-left
+  ctx.beginPath(); ctx.moveTo(cx - s*2, cy + s*1*dir); ctx.lineTo(cx - s*4 + legAnim, cy + s*4*dir); ctx.stroke();
+  // Back-right
+  ctx.beginPath(); ctx.moveTo(cx + s*2, cy + s*1*dir); ctx.lineTo(cx + s*4 - legAnim, cy + s*4*dir); ctx.stroke();
+  // Elongated body (teardrop)
+  ctx.fillStyle = shadeColor(color, -20);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*3, s*4, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Carapace ridge line
+  ctx.strokeStyle = shadeColor(color, 20);
+  ctx.lineWidth = s*0.8;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*3.5*dir);
+  ctx.lineTo(cx, cy + s*3*dir);
+  ctx.stroke();
+  // Head
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - s*3*dir, s*2, s*1.5, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Mandibles/claws
+  ctx.strokeStyle = '#ffccaa';
+  ctx.lineWidth = s*0.7;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*1.5, cy - s*3.5*dir);
+  ctx.lineTo(cx - s*3, cy - s*5.5*dir);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*1.5, cy - s*3.5*dir);
+  ctx.lineTo(cx + s*3, cy - s*5.5*dir);
+  ctx.stroke();
+  // Eyes
+  ctx.fillStyle = '#ffaa00';
+  ctx.beginPath(); ctx.arc(cx - s*0.8, cy - s*3.5*dir, s*0.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*0.8, cy - s*3.5*dir, s*0.5, 0, Math.PI*2); ctx.fill();
+  // Pointed tail
+  ctx.fillStyle = shadeColor(color, -30);
+  ctx.beginPath();
+  ctx.moveTo(cx - s*0.8, cy + s*3*dir);
+  ctx.lineTo(cx, cy + s*6*dir);
+  ctx.lineTo(cx + s*0.8, cy + s*3*dir);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawRoach(cx, cy, r, dir, color, anim) {
+  const s = r / 10;
+  // Six legs (three per side)
+  ctx.strokeStyle = shadeColor(color, -50);
+  ctx.lineWidth = s*1.2;
+  const legMove = Math.sin(anim*6)*s*0.8;
+  for (let i = -1; i <= 1; i++) {
+    const ly = cy + i*s*3;
+    ctx.beginPath(); ctx.moveTo(cx - s*6, ly); ctx.lineTo(cx - s*9, ly - s*2*dir + legMove*(i+1)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + s*6, ly); ctx.lineTo(cx + s*9, ly - s*2*dir - legMove*(i+1)); ctx.stroke();
+  }
+  // Wide armored carapace
+  ctx.fillStyle = shadeColor(color, -25);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*8, s*6, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Carapace plates/ridges
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - s*1, s*6, s*4, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Ridge lines
+  ctx.strokeStyle = shadeColor(color, -40);
+  ctx.lineWidth = s*0.6;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*4, cy - s*2); ctx.lineTo(cx, cy - s*4); ctx.lineTo(cx + s*4, cy - s*2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - s*3, cy); ctx.lineTo(cx, cy - s*2); ctx.lineTo(cx + s*3, cy);
+  ctx.stroke();
+  // Acid spit nozzle (front)
+  ctx.fillStyle = '#66aa33';
+  ctx.beginPath();
+  ctx.moveTo(cx - s*2, cy - s*5*dir);
+  ctx.lineTo(cx, cy - s*8*dir);
+  ctx.lineTo(cx + s*2, cy - s*5*dir);
+  ctx.closePath();
+  ctx.fill();
+  // Acid drip
+  ctx.fillStyle = '#88cc44';
+  const drip = Math.sin(anim*4)*s;
+  ctx.beginPath(); ctx.arc(cx, cy - s*8*dir - drip, s*0.8, 0, Math.PI*2); ctx.fill();
+  // Beady eyes
+  ctx.fillStyle = '#ffcc00';
+  ctx.beginPath(); ctx.arc(cx - s*2, cy - s*4*dir, s*0.8, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*2, cy - s*4*dir, s*0.8, 0, Math.PI*2); ctx.fill();
+}
+
+function drawHydralisk(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  // Snake-like lower body segments
+  ctx.fillStyle = shadeColor(color, -30);
+  const segOff = Math.sin(anim*4)*s*0.5;
+  ctx.beginPath();
+  ctx.ellipse(cx + segOff, cy + s*4*dir, s*3, s*2.5, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx - segOff*0.5, cy + s*7*dir, s*2.5, s*2, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Segment lines
+  ctx.strokeStyle = shadeColor(color, -50);
+  ctx.lineWidth = s*0.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*2.5 + segOff, cy + s*2.5*dir);
+  ctx.lineTo(cx + s*2.5 + segOff, cy + s*2.5*dir);
+  ctx.stroke();
+  // Main body/torso
+  ctx.fillStyle = shadeColor(color, -15);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*4, s*5, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Body detail
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - s*1, s*3, s*3.5, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Hood/crest (cobra-like, flaring out)
+  ctx.fillStyle = shadeColor(color, 10);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*6*dir);
+  ctx.quadraticCurveTo(cx - s*7, cy - s*3*dir, cx - s*5, cy - s*0.5*dir);
+  ctx.lineTo(cx - s*2, cy);
+  ctx.lineTo(cx + s*2, cy);
+  ctx.lineTo(cx + s*5, cy - s*0.5*dir);
+  ctx.quadraticCurveTo(cx + s*7, cy - s*3*dir, cx, cy - s*6*dir);
+  ctx.fill();
+  // Scythe arms
+  ctx.strokeStyle = '#ddaa88';
+  ctx.lineWidth = s*1.2;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*3, cy + s*1);
+  ctx.quadraticCurveTo(cx - s*7, cy - s*2*dir, cx - s*5, cy - s*5*dir);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*3, cy + s*1);
+  ctx.quadraticCurveTo(cx + s*7, cy - s*2*dir, cx + s*5, cy - s*5*dir);
+  ctx.stroke();
+  // Spines on back
+  ctx.strokeStyle = shadeColor(color, 30);
+  ctx.lineWidth = s*0.8;
+  for (let i = 0; i < 3; i++) {
+    const sy = cy + s*(i*2 - 1);
+    ctx.beginPath(); ctx.moveTo(cx - s*1, sy); ctx.lineTo(cx - s*3, sy - s*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + s*1, sy); ctx.lineTo(cx + s*3, sy - s*2); ctx.stroke();
+  }
+  // Eyes
+  ctx.fillStyle = '#ffaa00';
+  ctx.beginPath(); ctx.arc(cx - s*1.5, cy - s*4*dir, s*0.7, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1.5, cy - s*4*dir, s*0.7, 0, Math.PI*2); ctx.fill();
+  // Mouth/jaw
+  ctx.strokeStyle = '#ddccaa';
+  ctx.lineWidth = s*0.6;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*1, cy - s*5*dir);
+  ctx.lineTo(cx, cy - s*6.5*dir);
+  ctx.lineTo(cx + s*1, cy - s*5*dir);
+  ctx.stroke();
+}
+
+function drawBaneling(cx, cy, r, dir, color, anim) {
+  const s = r / 7;
+  // Small tucked legs
+  ctx.fillStyle = '#336633';
+  const legA = anim*6;
+  for (let i = 0; i < 4; i++) {
+    const angle = (i/4)*Math.PI*2 + legA*0.3;
+    const lx = cx + Math.cos(angle)*s*5;
+    const ly = cy + Math.sin(angle)*s*4;
+    ctx.beginPath(); ctx.arc(lx, ly, s*1, 0, Math.PI*2); ctx.fill();
+  }
+  // Outer acid sac membrane
+  const pulse = Math.sin(anim*4)*s*0.8;
+  ctx.fillStyle = 'rgba(80,200,80,0.2)';
+  ctx.beginPath(); ctx.arc(cx, cy, s*7 + pulse, 0, Math.PI*2); ctx.fill();
+  // Main acid sac body
+  const grad = ctx.createRadialGradient(cx - s*1, cy - s*1, s*1, cx, cy, s*6);
+  grad.addColorStop(0, '#88ff44');
+  grad.addColorStop(0.5, '#44cc22');
+  grad.addColorStop(1, '#227711');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(cx, cy, s*6, 0, Math.PI*2); ctx.fill();
+  // Vein-like surface detail
+  ctx.strokeStyle = 'rgba(30,100,20,0.5)';
+  ctx.lineWidth = s*0.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*3, cy - s*4); ctx.quadraticCurveTo(cx, cy - s*1, cx + s*2, cy - s*5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - s*4, cy + s*1); ctx.quadraticCurveTo(cx - s*1, cy + s*2, cx + s*3, cy + s*3);
+  ctx.stroke();
+  // Inner glow (pulsing)
+  const innerPulse = Math.sin(anim*6)*s*0.5 + s*2;
+  ctx.fillStyle = 'rgba(180,255,100,0.4)';
+  ctx.beginPath(); ctx.arc(cx, cy - s*0.5, innerPulse, 0, Math.PI*2); ctx.fill();
+  // Acid drip effect
+  ctx.fillStyle = '#66dd22';
+  const dripY = Math.sin(anim*3)*s*1;
+  ctx.beginPath(); ctx.arc(cx - s*2, cy + s*5 + dripY, s*0.8, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1, cy + s*5.5 - dripY, s*0.6, 0, Math.PI*2); ctx.fill();
+}
+
+function drawUltralisk(cx, cy, r, dir, color, anim) {
+  const s = r / 16;
+  // Thick legs
+  ctx.fillStyle = shadeColor(color, -50);
+  ctx.fillRect(cx - s*10, cy + s*4*dir, s*4, s*7*dir);
+  ctx.fillRect(cx + s*6, cy + s*4*dir, s*4, s*7*dir);
+  ctx.fillRect(cx - s*6, cy + s*6*dir, s*3, s*6*dir);
+  ctx.fillRect(cx + s*3, cy + s*6*dir, s*3, s*6*dir);
+  // Huge oval body
+  ctx.fillStyle = shadeColor(color, -25);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*12, s*8, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Carapace with ridge plates
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - s*1, s*10, s*6, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Ridge plate lines
+  ctx.strokeStyle = shadeColor(color, 25);
+  ctx.lineWidth = s*1;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*6); ctx.lineTo(cx, cy + s*4);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - s*7, cy - s*2); ctx.lineTo(cx - s*3, cy - s*5); ctx.lineTo(cx, cy - s*6);
+  ctx.lineTo(cx + s*3, cy - s*5); ctx.lineTo(cx + s*7, cy - s*2);
+  ctx.stroke();
+  // Small head with tusks
+  ctx.fillStyle = shadeColor(color, -10);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - s*7*dir, s*4, s*3, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Tusks
+  ctx.fillStyle = '#eeddcc';
+  ctx.lineWidth = s*0.8;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*2, cy - s*8*dir);
+  ctx.lineTo(cx - s*4, cy - s*11*dir);
+  ctx.lineTo(cx - s*1, cy - s*9*dir);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*2, cy - s*8*dir);
+  ctx.lineTo(cx + s*4, cy - s*11*dir);
+  ctx.lineTo(cx + s*1, cy - s*9*dir);
+  ctx.closePath();
+  ctx.fill();
+  // Eyes
+  ctx.fillStyle = '#ff4400';
+  ctx.beginPath(); ctx.arc(cx - s*1.5, cy - s*7.5*dir, s*0.8, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1.5, cy - s*7.5*dir, s*0.8, 0, Math.PI*2); ctx.fill();
+  // Kaiser blades (4 massive curved blades, 2 per side)
+  ctx.fillStyle = '#ddccbb';
+  ctx.strokeStyle = '#bbaa99';
+  ctx.lineWidth = s*0.6;
+  // Left upper blade
+  ctx.beginPath();
+  ctx.moveTo(cx - s*10, cy - s*2);
+  ctx.quadraticCurveTo(cx - s*16, cy - s*8*dir, cx - s*12, cy - s*12*dir);
+  ctx.lineTo(cx - s*10, cy - s*8*dir);
+  ctx.quadraticCurveTo(cx - s*13, cy - s*5*dir, cx - s*9, cy - s*1);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Left lower blade
+  ctx.beginPath();
+  ctx.moveTo(cx - s*10, cy + s*1);
+  ctx.quadraticCurveTo(cx - s*15, cy - s*4*dir, cx - s*11, cy - s*9*dir);
+  ctx.lineTo(cx - s*9, cy - s*6*dir);
+  ctx.quadraticCurveTo(cx - s*12, cy - s*2*dir, cx - s*9, cy + s*2);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Right upper blade
+  ctx.beginPath();
+  ctx.moveTo(cx + s*10, cy - s*2);
+  ctx.quadraticCurveTo(cx + s*16, cy - s*8*dir, cx + s*12, cy - s*12*dir);
+  ctx.lineTo(cx + s*10, cy - s*8*dir);
+  ctx.quadraticCurveTo(cx + s*13, cy - s*5*dir, cx + s*9, cy - s*1);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Right lower blade
+  ctx.beginPath();
+  ctx.moveTo(cx + s*10, cy + s*1);
+  ctx.quadraticCurveTo(cx + s*15, cy - s*4*dir, cx + s*11, cy - s*9*dir);
+  ctx.lineTo(cx + s*9, cy - s*6*dir);
+  ctx.quadraticCurveTo(cx + s*12, cy - s*2*dir, cx + s*9, cy + s*2);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+}
+
+function drawDroneUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 8;
+  // Hover shadow
+  ctx.fillStyle = 'rgba(200,100,50,0.15)';
+  ctx.beginPath(); ctx.ellipse(cx, cy + s*5, s*5, s*1.5, 0, 0, Math.PI*2); ctx.fill();
+  // Wings (two pairs, angled back)
+  ctx.fillStyle = shadeColor(color, -20);
+  const wingFlap = Math.sin(anim*8)*s*0.5;
+  // Upper wings
+  ctx.beginPath();
+  ctx.moveTo(cx - s*2, cy - s*1);
+  ctx.lineTo(cx - s*7, cy + s*3*dir + wingFlap);
+  ctx.lineTo(cx - s*6, cy + s*5*dir + wingFlap);
+  ctx.lineTo(cx - s*1, cy + s*1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*2, cy - s*1);
+  ctx.lineTo(cx + s*7, cy + s*3*dir - wingFlap);
+  ctx.lineTo(cx + s*6, cy + s*5*dir - wingFlap);
+  ctx.lineTo(cx + s*1, cy + s*1);
+  ctx.closePath();
+  ctx.fill();
+  // Lower wings (smaller)
+  ctx.fillStyle = shadeColor(color, -35);
+  ctx.beginPath();
+  ctx.moveTo(cx - s*1.5, cy + s*1);
+  ctx.lineTo(cx - s*5, cy + s*4*dir - wingFlap);
+  ctx.lineTo(cx - s*4, cy + s*5.5*dir - wingFlap);
+  ctx.lineTo(cx - s*0.5, cy + s*2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*1.5, cy + s*1);
+  ctx.lineTo(cx + s*5, cy + s*4*dir + wingFlap);
+  ctx.lineTo(cx + s*4, cy + s*5.5*dir + wingFlap);
+  ctx.lineTo(cx + s*0.5, cy + s*2);
+  ctx.closePath();
+  ctx.fill();
+  // Oval body
+  ctx.fillStyle = shadeColor(color, -10);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*3.5, s*3, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Segmented body detail
+  ctx.strokeStyle = shadeColor(color, -40);
+  ctx.lineWidth = s*0.4;
+  ctx.beginPath(); ctx.moveTo(cx - s*3, cy); ctx.lineTo(cx + s*3, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - s*2.5, cy + s*1.5); ctx.lineTo(cx + s*2.5, cy + s*1.5); ctx.stroke();
+  // Head
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - s*2.5*dir, s*2, s*1.5, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Mandibles
+  ctx.strokeStyle = '#ddbb88';
+  ctx.lineWidth = s*0.7;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*1, cy - s*3*dir);
+  ctx.lineTo(cx - s*2, cy - s*5*dir);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*1, cy - s*3*dir);
+  ctx.lineTo(cx + s*2, cy - s*5*dir);
+  ctx.stroke();
+  // Eyes
+  ctx.fillStyle = '#ffaa00';
+  ctx.beginPath(); ctx.arc(cx - s*0.8, cy - s*3*dir, s*0.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*0.8, cy - s*3*dir, s*0.5, 0, Math.PI*2); ctx.fill();
 }
 
 function drawPolygon(ctx, cx, cy, r, sides, color) {
@@ -1146,16 +1932,25 @@ function drawCardHand() {
     ctx.lineWidth = selected ? 2 : 1;
     roundRect(ctx, cx, cy, CARD_W, CARD_H, 8, false, true);
 
-    // Unit circle
+    // Unit preview (SC2 drawing)
     const unitColor = affordable ? def.color : '#555';
-    ctx.fillStyle = unitColor;
+    ctx.save();
+    if (!affordable) ctx.globalAlpha = 0.4;
+    // Clip to circle area for clean look
     ctx.beginPath();
-    ctx.arc(cx + CARD_W / 2, cy + 30, 14, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.arc(cx + CARD_W / 2, cy + 30, 15, 0, Math.PI * 2);
+    ctx.clip();
+    // Draw SC2 unit on card
+    const cardUnitType = Object.keys(UNIT_DEFS).find(k => UNIT_DEFS[k] === def);
+    if (cardUnitType) {
+      drawSC2Unit(cardUnitType, cx + CARD_W / 2, cy + 30, def.r * 0.9, -1, unitColor, 'player', gameTime * 3);
+    }
+    ctx.restore();
+    // Circle border
     ctx.strokeStyle = affordable ? '#fff' : '#444';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(cx + CARD_W / 2, cy + 30, 14, 0, Math.PI * 2);
+    ctx.arc(cx + CARD_W / 2, cy + 30, 15, 0, Math.PI * 2);
     ctx.stroke();
 
     // Count
@@ -1190,10 +1985,17 @@ function drawCardHand() {
     ctx.font = '8px monospace';
     ctx.textAlign = 'right';
     ctx.fillText('NEXT:', GAME_W - 15, CARD_Y + 12);
-    ctx.fillStyle = def.color;
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(GAME_W - 15, CARD_Y + 26, 8, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.arc(GAME_W - 15, CARD_Y + 26, 9, 0, Math.PI * 2);
+    ctx.clip();
+    drawSC2Unit(nextCard, GAME_W - 15, CARD_Y + 26, def.r * 0.7, -1, def.color, 'player', gameTime * 3);
+    ctx.restore();
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(GAME_W - 15, CARD_Y + 26, 9, 0, Math.PI * 2);
+    ctx.stroke();
   }
 }
 
