@@ -681,13 +681,22 @@ function findTarget(unit) {
     if (d < bestDist && d < maxRange) { bestDist = d; best = u; }
   }
 
-  // Target towers/base only when very close
+  // Target towers/base when in range
   const enemyTowers = isPlayer ? towers.enemy : towers.player;
   for (const key of ['left', 'right', 'base']) {
     const t = enemyTowers[key];
     if (t.hp <= 0) continue;
     const d = dist(unit, t);
     if (d < bestDist && d < maxRange) { bestDist = d; best = t; }
+  }
+
+  // Target enemy buildings when in range
+  const enemyBldgs = isPlayer ? enemyBuildings : playerBuildings;
+  for (const b of enemyBldgs) {
+    if (b.hp <= 0) continue;
+    if (!b.r) { const bdef = BUILDING_DEFS[b.type]; b.r = bdef ? bdef.r : 14; }
+    const d = dist(unit, b);
+    if (d < bestDist && d < maxRange) { bestDist = d; best = b; }
   }
 
   return best;
@@ -831,7 +840,30 @@ function updateAllBuildingQueues(buildings, team, dt) {
 
 // ---- Update Buildings ----
 function updateBuildings(buildings, team, dt) {
-  for (const b of buildings) {
+  for (let i = buildings.length - 1; i >= 0; i--) {
+    const b = buildings[i];
+    // Skip the main base (handled by tower system)
+    if (b.type === '_base') continue;
+    // Destroyed building - remove and handle effects
+    if (b.hp <= 0) {
+      const bdef = BUILDING_DEFS[b.type];
+      // Lose supply if supply building
+      if (bdef && bdef.supplyCap && b.built) {
+        if (team === 'player') playerSupplyMax = Math.max(10, playerSupplyMax - bdef.supplyCap);
+        else enemySupplyMax = Math.max(10, enemySupplyMax - bdef.supplyCap);
+      }
+      // Free gas workers if refinery
+      if (bdef && bdef.gasBuilding) {
+        const geysers = getGasGeysers(team);
+        const geyser = geysers.find(g => Math.abs(g.x - b.x) < 20 && Math.abs(g.y - b.y) < 20);
+        if (geyser) geyser.workers = 0;
+      }
+      // Destruction particles
+      spawnParticle(b.x, b.y, '#ff6600', 20);
+      spawnParticle(b.x, b.y, '#ffaa00', 10);
+      buildings.splice(i, 1);
+      continue;
+    }
     if (!b.built) {
       b.buildProgress += dt;
       if (b.buildProgress >= b.buildTime) {
@@ -1254,6 +1286,16 @@ function dealSplash(x, y, radius, dmg, attackerTeam) {
     if (dist(t, { x, y }) <= radius + t.r) {
       t.hp -= dmg;
       if (t.hp < 0) t.hp = 0;
+    }
+  }
+  // Splash damage enemy buildings
+  const enemyBldgs = attackerTeam === 'player' ? enemyBuildings : playerBuildings;
+  for (const b of enemyBldgs) {
+    if (b.hp <= 0) continue;
+    const br = b.r || 14;
+    if (dist(b, { x, y }) <= radius + br) {
+      b.hp -= dmg;
+      if (b.hp < 0) b.hp = 0;
     }
   }
   spawnParticle(x, y, '#ffaa33', 15);
@@ -3214,6 +3256,15 @@ function drawBuildings() {
       ctx.font = 'bold 6px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(bdef.name, b.x, b.y + 2);
+      // HP bar (show when damaged)
+      if (b.hp < b.maxHp && b.type !== '_base') {
+        const barW = bdef.r * 2;
+        ctx.fillStyle = '#111';
+        ctx.fillRect(b.x - barW/2, b.y - bdef.r - 6, barW, 3);
+        const hpFrac = b.hp / b.maxHp;
+        ctx.fillStyle = hpFrac > 0.5 ? '#44ff44' : hpFrac > 0.25 ? '#ffaa00' : '#ff4444';
+        ctx.fillRect(b.x - barW/2, b.y - bdef.r - 6, barW * hpFrac, 3);
+      }
     }
   }
 }
