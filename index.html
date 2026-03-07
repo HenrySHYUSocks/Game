@@ -503,9 +503,7 @@ function getAvailableBuildings(team) {
       available.push(btype);
       continue;
     }
-    // Production buildings: allow up to 3 of each
-    const buildingCount = buildings.filter(b => b.type === btype).length;
-    if (buildingCount >= 3) continue;
+    // Production buildings: unlimited
     // Check prerequisite
     if (bdef.requires) {
       const hasReq = buildings.some(b => b.type === bdef.requires && b.built);
