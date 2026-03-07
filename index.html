@@ -415,6 +415,9 @@ function findNearestPatch(unit) {
 
 function findTarget(unit) {
   const isPlayer = unit.team === 'player';
+  const stance = isPlayer ? playerStance : enemyStance;
+  // In defend mode, only engage enemies within a short leash range
+  const maxRange = (!unit.worker && stance === 'defend') ? 150 : Infinity;
   let best = null;
   let bestDist = Infinity;
 
@@ -422,7 +425,7 @@ function findTarget(unit) {
     if (u.dead || u.team === unit.team) continue;
     if (unit.healer) continue;
     const d = dist(unit, u);
-    if (d < bestDist) { bestDist = d; best = u; }
+    if (d < bestDist && d < maxRange) { bestDist = d; best = u; }
   }
 
   if (unit.healer) {
@@ -436,12 +439,15 @@ function findTarget(unit) {
     return best;
   }
 
-  const enemyTowers = isPlayer ? towers.enemy : towers.player;
-  for (const key of ['left', 'right', 'base']) {
-    const t = enemyTowers[key];
-    if (t.hp <= 0) continue;
-    const d = dist(unit, t);
-    if (d < bestDist) { bestDist = d; best = t; }
+  // In defend mode, don't target towers (stay home)
+  if (stance !== 'defend') {
+    const enemyTowers = isPlayer ? towers.enemy : towers.player;
+    for (const key of ['left', 'right', 'base']) {
+      const t = enemyTowers[key];
+      if (t.hp <= 0) continue;
+      const d = dist(unit, t);
+      if (d < bestDist) { bestDist = d; best = t; }
+    }
   }
 
   return best;
@@ -633,8 +639,8 @@ function updateGame(dt) {
       const stance = isPlayer ? playerStance : enemyStance;
       let targetY;
       if (stance === 'defend') {
-        // In defend mode, hold near base side of river
-        targetY = isPlayer ? RIVER_Y + 40 : RIVER_Y - 40;
+        // In defend mode, hold just in front of base
+        targetY = isPlayer ? GAME_H - 120 : 120;
       } else {
         // Attack: push toward enemy base
         targetY = isPlayer ? 45 : GAME_H - 45;
