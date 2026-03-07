@@ -201,13 +201,13 @@ let playerMinerals = 50;
 let enemyMinerals = 50;
 const MAX_MINERALS = 9999;
 const MINERAL_PER_TRIP = 5;
-const MINE_TIME = 1.5;
+const MINE_TIME = 2.8; // ~SC2 mining time per trip (includes harvest animation)
 const CARRY_AMOUNT = 5;
 
 // ---- Gas System ----
 let playerGas = 0;
 let enemyGas = 0;
-const GAS_PER_WORKER_PER_SEC = 1.1; // ~198 gas/min with 3 workers (boosted for mobile pace)
+const GAS_PER_WORKER_PER_SEC = 0.63; // ~38 gas/min per worker, ~114 gas/min with 3 (SC2 rate)
 
 // ---- Supply System ----
 let playerSupply = 0;
@@ -306,63 +306,71 @@ function drawObstacles() {
 }
 
 // 6 mineral patches per base, 2 gas geysers per base, + expansion patches & geysers
+// Expansion positions: BEHIND the main base (more protected)
+const PLAYER_EXP_Y = GAME_H + 60;  // below player main base
+const ENEMY_EXP_Y = -60;            // above enemy main base
+
 function makeMineralPatches() {
-  // Player expansion at (ARENA_W/2, RIVER_Y + RIVER_H + 150) ≈ (155, 868)
-  // Enemy expansion at (ARENA_W/2, RIVER_Y - 150) ≈ (155, 550)
-  const pExpY = RIVER_Y + RIVER_H + 150;
-  const eExpY = RIVER_Y - 150;
   return {
     player: [
-      { x: 35,  y: GAME_H - 110, minerals: 1800, maxMinerals: 1800 },
-      { x: 70,  y: GAME_H - 100, minerals: 1800, maxMinerals: 1800 },
-      { x: 110, y: GAME_H - 105, minerals: 1800, maxMinerals: 1800 },
-      { x: ARENA_W/2 - 20, y: GAME_H - 95, minerals: 1800, maxMinerals: 1800 },
-      { x: ARENA_W/2 + 30, y: GAME_H - 100, minerals: 1800, maxMinerals: 1800 },
-      { x: ARENA_W - 50, y: GAME_H - 105, minerals: 1800, maxMinerals: 1800 },
+      // Mineral line ~60px away from base (SC2-like travel distance)
+      { x: 30,  y: GAME_H - 145, minerals: 1800, maxMinerals: 1800 },
+      { x: 65,  y: GAME_H - 155, minerals: 1800, maxMinerals: 1800 },
+      { x: 100, y: GAME_H - 160, minerals: 1800, maxMinerals: 1800 },
+      { x: 140, y: GAME_H - 163, minerals: 1800, maxMinerals: 1800 },
+      { x: 180, y: GAME_H - 160, minerals: 1800, maxMinerals: 1800 },
+      { x: 215, y: GAME_H - 150, minerals: 1800, maxMinerals: 1800 },
+      { x: 250, y: GAME_H - 145, minerals: 1800, maxMinerals: 1800 },
+      { x: 280, y: GAME_H - 150, minerals: 1800, maxMinerals: 1800 },
     ],
     enemy: [
-      { x: 35,  y: 110, minerals: 1800, maxMinerals: 1800 },
-      { x: 70,  y: 100, minerals: 1800, maxMinerals: 1800 },
-      { x: 110, y: 105, minerals: 1800, maxMinerals: 1800 },
-      { x: ARENA_W/2 - 20, y: 95, minerals: 1800, maxMinerals: 1800 },
-      { x: ARENA_W/2 + 30, y: 100, minerals: 1800, maxMinerals: 1800 },
-      { x: ARENA_W - 50, y: 105, minerals: 1800, maxMinerals: 1800 },
+      { x: 30,  y: 145, minerals: 1800, maxMinerals: 1800 },
+      { x: 65,  y: 155, minerals: 1800, maxMinerals: 1800 },
+      { x: 100, y: 160, minerals: 1800, maxMinerals: 1800 },
+      { x: 140, y: 163, minerals: 1800, maxMinerals: 1800 },
+      { x: 180, y: 160, minerals: 1800, maxMinerals: 1800 },
+      { x: 215, y: 150, minerals: 1800, maxMinerals: 1800 },
+      { x: 250, y: 145, minerals: 1800, maxMinerals: 1800 },
+      { x: 280, y: 150, minerals: 1800, maxMinerals: 1800 },
     ],
+    // Expansion minerals behind the main base
     playerExpansion: [
-      { x: ARENA_W/2 - 60, y: pExpY - 25, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2 - 30, y: pExpY - 30, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2,      y: pExpY - 28, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2 + 30, y: pExpY - 25, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2 + 60, y: pExpY - 30, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2 + 90, y: pExpY - 25, minerals: 1500, maxMinerals: 1500 },
+      { x: 40,  y: GAME_H - 15, minerals: 1500, maxMinerals: 1500 },
+      { x: 75,  y: GAME_H - 10, minerals: 1500, maxMinerals: 1500 },
+      { x: 110, y: GAME_H - 8, minerals: 1500, maxMinerals: 1500 },
+      { x: 150, y: GAME_H - 5, minerals: 1500, maxMinerals: 1500 },
+      { x: 190, y: GAME_H - 8, minerals: 1500, maxMinerals: 1500 },
+      { x: 225, y: GAME_H - 10, minerals: 1500, maxMinerals: 1500 },
+      { x: 260, y: GAME_H - 15, minerals: 1500, maxMinerals: 1500 },
+      { x: 290, y: GAME_H - 10, minerals: 1500, maxMinerals: 1500 },
     ],
     enemyExpansion: [
-      { x: ARENA_W/2 - 60, y: eExpY + 25, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2 - 30, y: eExpY + 30, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2,      y: eExpY + 28, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2 + 30, y: eExpY + 25, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2 + 60, y: eExpY + 30, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2 + 90, y: eExpY + 25, minerals: 1500, maxMinerals: 1500 },
+      { x: 40,  y: 15, minerals: 1500, maxMinerals: 1500 },
+      { x: 75,  y: 10, minerals: 1500, maxMinerals: 1500 },
+      { x: 110, y: 8, minerals: 1500, maxMinerals: 1500 },
+      { x: 150, y: 5, minerals: 1500, maxMinerals: 1500 },
+      { x: 190, y: 8, minerals: 1500, maxMinerals: 1500 },
+      { x: 225, y: 10, minerals: 1500, maxMinerals: 1500 },
+      { x: 260, y: 15, minerals: 1500, maxMinerals: 1500 },
+      { x: 290, y: 10, minerals: 1500, maxMinerals: 1500 },
     ],
   };
 }
 function makeGasGeysers() {
-  const pExpY = RIVER_Y + RIVER_H + 150;
-  const eExpY = RIVER_Y - 150;
   return {
     player: [
       { x: ARENA_W - 40, y: GAME_H - 65, gas: 2250, maxGas: 2250, workers: 0 },
-      { x: ARENA_W - 70, y: GAME_H - 50, gas: 2250, maxGas: 2250, workers: 0 },
-      // Expansion geysers (available after building expansion)
-      { x: ARENA_W/2 - 50, y: pExpY + 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
-      { x: ARENA_W/2 + 70, y: pExpY + 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: 40, y: GAME_H - 55, gas: 2250, maxGas: 2250, workers: 0 },
+      // Expansion geysers (behind main base)
+      { x: 50, y: GAME_H - 25, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: ARENA_W - 50, y: GAME_H - 25, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
     ],
     enemy: [
       { x: ARENA_W - 40, y: 65, gas: 2250, maxGas: 2250, workers: 0 },
-      { x: ARENA_W - 70, y: 50, gas: 2250, maxGas: 2250, workers: 0 },
-      // Expansion geysers
-      { x: ARENA_W/2 - 50, y: eExpY - 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
-      { x: ARENA_W/2 + 70, y: eExpY - 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: 40, y: 55, gas: 2250, maxGas: 2250, workers: 0 },
+      // Expansion geysers (behind enemy main base)
+      { x: 50, y: 25, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: ARENA_W - 50, y: 25, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
     ],
   };
 }
@@ -371,30 +379,33 @@ let gasGeysers;
 
 // ---- Building System ----
 const BUILDING_DEFS = {
-  _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:10 },
+  _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:15 },
   // Expansion bases (second command centre)
   commandcenter: { faction:'terran', cost:400, buildTime:15, name:'CC', unlocks:['scv'], r:20, supplyCap:11, isExpansion:true },
   nexus:         { faction:'protoss', cost:400, buildTime:15, name:'Nexus', unlocks:['probe'], r:20, supplyCap:11, isExpansion:true },
   hatchery:      { faction:'zerg', cost:300, buildTime:15, name:'Hatchery', unlocks:['drone'], r:20, supplyCap:11, isExpansion:true },
   // Supply buildings
-  supplydepot: { faction:'terran', cost:100, buildTime:5, name:'Depot', unlocks:[], r:14, supplyCap:10 },
-  pylon:       { faction:'protoss', cost:100, buildTime:5, name:'Pylon', unlocks:[], r:14, supplyCap:10 },
-  overlord:    { faction:'zerg', cost:100, buildTime:5, name:'Overlord', unlocks:[], r:14, supplyCap:10 },
+  supplydepot: { faction:'terran', cost:100, buildTime:5, name:'Depot', unlocks:[], r:14, supplyCap:8 },
+  pylon:       { faction:'protoss', cost:100, buildTime:5, name:'Pylon', unlocks:[], r:14, supplyCap:8 },
+  overlord:    { faction:'zerg', cost:100, buildTime:5, name:'Overlord', unlocks:[], r:14, supplyCap:8 },
   // Gas buildings
   refinery:    { faction:'terran', cost:75, buildTime:5, name:'Refinery', unlocks:[], r:14, gasBuilding:true },
   assimilator: { faction:'protoss', cost:75, buildTime:5, name:'Assimilator', unlocks:[], r:14, gasBuilding:true },
   extractor:   { faction:'zerg', cost:75, buildTime:5, name:'Extractor', unlocks:[], r:14, gasBuilding:true },
   // TERRAN
-  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','medic'], r:18 },
-  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','ghost'], requires:'barracks', r:18 },
-  starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','battlecruiser'], requires:'factory', r:18 },
+  bunker:    { faction:'terran', cost:100, buildTime:6, name:'Bunker', unlocks:[], r:16, isDefense:true, defenseHp:400, defenseDmg:25, defenseRange:130, defenseAtkSpeed:1.0 },
+  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper','medic'], r:18 },
+  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','widowmine','ghost'], requires:'barracks', r:18 },
+  starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','battlecruiser'], requires:'factory', r:18 },
   // PROTOSS
-  gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','sentry'], r:18 },
-  robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robo Bay', unlocks:['immortal','hightemplar'], requires:'gateway', r:18 },
-  fleetbeacon: { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Fleet Beacon', unlocks:['phoenix','voidray','carrier'], requires:'robo', r:18 },
+  photoncannon: { faction:'protoss', cost:150, buildTime:6, name:'Cannon', unlocks:[], r:14, isDefense:true, defenseHp:300, defenseDmg:20, defenseRange:140, defenseAtkSpeed:0.9 },
+  gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','adept','sentry'], r:18 },
+  robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robo Bay', unlocks:['immortal','colossus','hightemplar'], requires:'gateway', r:18 },
+  fleetbeacon: { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Fleet Beacon', unlocks:['phoenix','voidray','tempest','carrier'], requires:'robo', r:18 },
   // ZERG
-  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','baneling'], r:18 },
-  den:       { faction:'zerg', cost:100, gasCost:100, buildTime:12, name:'Hydra Den', unlocks:['hydralisk','ultralisk'], requires:'pool', r:18 },
+  spinecrawler: { faction:'zerg', cost:100, buildTime:6, name:'Spine', unlocks:[], r:14, isDefense:true, defenseHp:300, defenseDmg:30, defenseRange:120, defenseAtkSpeed:1.2 },
+  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','ravager','baneling'], r:18 },
+  den:       { faction:'zerg', cost:100, gasCost:100, buildTime:12, name:'Hydra Den', unlocks:['hydralisk','lurker','ultralisk'], requires:'pool', r:18 },
   spire:     { faction:'zerg', cost:200, gasCost:200, buildTime:10, name:'Spire', unlocks:['mutalisk','corruptor','broodlord'], requires:'den', r:18 },
 };
 
@@ -404,9 +415,9 @@ const FACTION_GAS = { terran:'refinery', protoss:'assimilator', zerg:'extractor'
 const FACTION_EXPANSION = { terran:'commandcenter', protoss:'nexus', zerg:'hatchery' };
 
 const FACTION_BUILDINGS = {
-  terran: ['supplydepot','refinery','commandcenter','barracks','factory','starport'],
-  protoss: ['pylon','assimilator','nexus','gateway','robo','fleetbeacon'],
-  zerg: ['overlord','extractor','hatchery','pool','den','spire'],
+  terran: ['supplydepot','refinery','commandcenter','bunker','barracks','factory','starport'],
+  protoss: ['pylon','assimilator','nexus','photoncannon','gateway','robo','fleetbeacon'],
+  zerg: ['overlord','extractor','hatchery','spinecrawler','pool','den','spire'],
 };
 
 let playerBuildings = []; // { type, x, y, hp, maxHp, built, buildProgress, buildTime }
@@ -417,27 +428,36 @@ const UNIT_DEFS = {
   // TERRAN — SC2 costs
   marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:195, dmg:31, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine', buildTime:3 },
   marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:450, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, color:'#336699', name:'Marauder', buildTime:4 },
+  reaper:       { faction:'terran', cost:50,  gasCost:50,  supply:1, hp:160, dmg:22, speed:2.0, range:80,  atkSpeed:0.6, count:2, r:7,  color:'#66aaff', name:'Reaper', buildTime:3 },
   medic:        { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:3 },
   siegetank:    { faction:'terran', cost:150, gasCost:125, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:6 },
+  hellion:      { faction:'terran', cost:100, gasCost:0,   supply:2, hp:200, dmg:35, speed:1.6, range:80,  atkSpeed:0.8, count:2, r:9,  color:'#ff8844', name:'Hellion', splash:20, buildTime:4 },
+  widowmine:    { faction:'terran', cost:75,  gasCost:25,  supply:2, hp:180, dmg:160,speed:0.8, range:100, atkSpeed:3.0, count:1, r:7,  color:'#556633', name:'W.Mine', splash:40, buildTime:4 },
   ghost:        { faction:'terran', cost:150, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost', buildTime:5 },
   scv:          { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3, buildTime:2 },
   viking:       { faction:'terran', cost:150, gasCost:75,  supply:2, hp:280, dmg:40, speed:1.3, range:120, atkSpeed:0.9, count:1, r:10, color:'#5599ee', name:'Viking', buildTime:5, isAir:true },
   medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, color:'#aaddff', name:'Medivac', healer:true, healAmt:30, buildTime:5, isAir:true },
+  banshee:      { faction:'terran', cost:150, gasCost:100, supply:3, hp:280, dmg:55, speed:1.2, range:110, atkSpeed:1.0, count:1, r:10, color:'#3355cc', name:'Banshee', buildTime:6, isAir:true },
   battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, color:'#3366aa', name:'Battlecruiser', splash:20, buildTime:10, isAir:true },
   // PROTOSS — SC2 costs
   zealot:       { faction:'protoss', cost:100, gasCost:0,   supply:2, hp:530, dmg:56, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
   stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:390, dmg:53, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
+  adept:        { faction:'protoss', cost:100, gasCost:25,  supply:2, hp:280, dmg:45, speed:1.3, range:80,  atkSpeed:0.9, count:2, r:9,  color:'#bb8800', name:'Adept', buildTime:3 },
   sentry:       { faction:'protoss', cost:50,  gasCost:100, supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:140, buildTime:3 },
   hightemplar:  { faction:'protoss', cost:50,  gasCost:150, supply:2, hp:280, dmg:180,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:55, buildTime:6 },
   immortal:     { faction:'protoss', cost:275, gasCost:100, supply:4, hp:650, dmg:85, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:5 },
+  colossus:     { faction:'protoss', cost:300, gasCost:200, supply:6, hp:450, dmg:70, speed:0.7, range:150, atkSpeed:1.2, count:1, r:14, color:'#eecc33', name:'Colossus', splash:35, buildTime:8 },
   probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
   phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:250, dmg:35, speed:1.6, range:110, atkSpeed:0.8, count:1, r:9,  color:'#eebb22', name:'Phoenix', buildTime:5, isAir:true },
   voidray:      { faction:'protoss', cost:250, gasCost:150, supply:4, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, color:'#ffdd44', name:'Void Ray', buildTime:7, isAir:true },
+  tempest:      { faction:'protoss', cost:250, gasCost:175, supply:5, hp:400, dmg:60, speed:0.6, range:170, atkSpeed:2.0, count:1, r:12, color:'#ccaa11', name:'Tempest', buildTime:8, isAir:true },
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:10, isAir:true },
   // ZERG — SC2 costs
   zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:165, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
   roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:540, dmg:37, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
+  ravager:      { faction:'zerg', cost:100, gasCost:100, supply:3, hp:480, dmg:55, speed:1.0, range:100, atkSpeed:1.0, count:1, r:11, color:'#cc4444', name:'Ravager', splash:25, buildTime:4 },
   hydralisk:    { faction:'zerg', cost:100, gasCost:50,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:4 },
+  lurker:       { faction:'zerg', cost:150, gasCost:100, supply:3, hp:400, dmg:70, speed:0.6, range:140, atkSpeed:1.5, count:1, r:10, color:'#884422', name:'Lurker', splash:30, buildTime:6 },
   baneling:     { faction:'zerg', cost:25,  gasCost:25,  supply:1, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:4, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:3 },
   ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25, buildTime:8 },
   drone:        { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3, buildTime:2 },
@@ -612,9 +632,9 @@ function startGame(faction) {
   playerGas = 0;
   enemyGas = 0;
   playerSupply = 0;
-  playerSupplyMax = 10;
+  playerSupplyMax = 15;
   enemySupply = 0;
-  enemySupplyMax = 10;
+  enemySupplyMax = 15;
   gameTime = 0;
   playerRallyX = ARENA_W / 2; // start holding near base
   playerRallyY = GAME_H - 250;
@@ -625,12 +645,12 @@ function startGame(faction) {
   cameraY = GAME_H - VIEWPORT_H; // Start viewing player base
   cameraAutoFollow = true;
 
-  // Start with 4 workers each
+  // Start with 12 workers each (SC2 LotV)
   const pw = WORKER_TYPE[playerFaction];
   const ew = WORKER_TYPE[enemyFaction];
-  for (let i = 0; i < 4; i++) {
-    spawnUnit(pw, ARENA_W/2 + (Math.random()-0.5)*30, GAME_H - 110 + (Math.random()-0.5)*15, 'player');
-    spawnUnit(ew, ARENA_W/2 + (Math.random()-0.5)*30, 110 + (Math.random()-0.5)*15, 'enemy');
+  for (let i = 0; i < 12; i++) {
+    spawnUnit(pw, ARENA_W/2 + (Math.random()-0.5)*50, GAME_H - 130 + (Math.random()-0.5)*30, 'player');
+    spawnUnit(ew, ARENA_W/2 + (Math.random()-0.5)*50, 130 + (Math.random()-0.5)*30, 'enemy');
   }
 
   gameRunning = true;
@@ -855,8 +875,8 @@ function updateBuildings(buildings, team, dt) {
       const bdef = BUILDING_DEFS[b.type];
       // Lose supply if supply building
       if (bdef && bdef.supplyCap && b.built) {
-        if (team === 'player') playerSupplyMax = Math.max(10, playerSupplyMax - bdef.supplyCap);
-        else enemySupplyMax = Math.max(10, enemySupplyMax - bdef.supplyCap);
+        if (team === 'player') playerSupplyMax = Math.max(15, playerSupplyMax - bdef.supplyCap);
+        else enemySupplyMax = Math.max(15, enemySupplyMax - bdef.supplyCap);
       }
       // Free gas workers if refinery
       if (bdef && bdef.gasBuilding) {
@@ -885,6 +905,28 @@ function updateBuildings(buildings, team, dt) {
           const geysers = getGasGeysers(team);
           const geyser = geysers.find(g => Math.abs(g.x - b.x) < 20 && Math.abs(g.y - b.y) < 20);
           if (geyser) geyser.workers = 3;
+        }
+      }
+    }
+    // Defensive building attack logic
+    const bdef2 = BUILDING_DEFS[b.type];
+    if (b.built && bdef2 && bdef2.isDefense) {
+      if (!b.atkCooldown) b.atkCooldown = 0;
+      b.atkCooldown -= dt;
+      if (b.atkCooldown <= 0) {
+        // Find nearest enemy unit in range
+        let target = null, bestD = bdef2.defenseRange;
+        for (const u of units) {
+          if (u.dead || u.team === team) continue;
+          const d = dist(b, u);
+          if (d < bestD) { bestD = d; target = u; }
+        }
+        if (target) {
+          target.hp -= bdef2.defenseDmg;
+          b.atkCooldown = bdef2.defenseAtkSpeed;
+          // Projectile visual
+          projectiles.push({ x: b.x, y: b.y, tx: target.x, ty: target.y, dmg: 0, team: team, speed: 300, color: '#ffaa00', splash: 0, target });
+          if (target.hp <= 0) target.dead = true;
         }
       }
     }
@@ -1532,15 +1574,28 @@ function updateEnemyAI(dt) {
   if (!enemyHasExpansion && gameTime > P.expandTime && enemyMinerals >= 400) {
     enemyMinerals -= 400;
     enemyBuildings.push({
-      type: expansionType, x: ARENA_W / 2, y: RIVER_Y - 150,
+      type: expansionType, x: ARENA_W / 2, y: 45,
       hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
+    });
+  }
+
+  // ---- Defense buildings: build 1-2 near base ----
+  const defenseType = { terran:'bunker', protoss:'photoncannon', zerg:'spinecrawler' }[enemyFaction];
+  const defCount = enemyBuildings.filter(b => b.type === defenseType).length;
+  if (defCount < 2 && gameTime > 30 && enemyMinerals >= BUILDING_DEFS[defenseType].cost) {
+    const bdef = BUILDING_DEFS[defenseType];
+    enemyMinerals -= bdef.cost;
+    const bx = defCount === 0 ? LANE_X[0] : LANE_X[1];
+    enemyBuildings.push({
+      type: defenseType, x: bx, y: 170,
+      hp: bdef.defenseHp, maxHp: bdef.defenseHp, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
     });
   }
 
   // ---- Production buildings: difficulty-scaled duplication ----
   const prodBuildings = getAvailableBuildings('enemy').filter(bt => {
     const bd = BUILDING_DEFS[bt];
-    return !bd.supplyCap && !bd.gasBuilding && !bd.isExpansion;
+    return !bd.supplyCap && !bd.gasBuilding && !bd.isExpansion && !bd.isDefense;
   });
 
   for (const btype of prodBuildings) {
@@ -1718,15 +1773,15 @@ function drawArena() {
 
   // Player base zone (warm tint)
   ctx.fillStyle = 'rgba(40, 50, 80, 0.4)';
-  ctx.fillRect(20, GAME_H - 250, ARENA_W - 40, 240);
+  ctx.fillRect(20, GAME_H - 250, ARENA_W - 40, 250);
   // Enemy base zone (cool tint)
   ctx.fillStyle = 'rgba(80, 40, 50, 0.3)';
-  ctx.fillRect(20, 20, ARENA_W - 40, 240);
+  ctx.fillRect(20, 0, ARENA_W - 40, 250);
 
-  // Expansion areas (gold tint for contested territory)
+  // Expansion areas (behind main bases)
   ctx.fillStyle = 'rgba(80, 70, 30, 0.2)';
-  ctx.fillRect(20, RIVER_Y - 170, ARENA_W - 40, 100);
-  ctx.fillRect(20, RIVER_Y + RIVER_H + 70, ARENA_W - 40, 100);
+  ctx.fillRect(20, 0, ARENA_W - 40, 60);           // Enemy expansion (top)
+  ctx.fillRect(20, GAME_H - 60, ARENA_W - 40, 60); // Player expansion (bottom)
 
   // Grid lines (only draw visible ones)
   ctx.strokeStyle = '#2a2a4e';
@@ -1753,18 +1808,18 @@ function drawArena() {
   ctx.fillStyle = '#444488';
   ctx.fillRect(18, 0, 2, GAME_H);
 
-  // Expansion labels
-  if (isVisible(RIVER_Y - 130)) {
+  // Expansion labels (behind main bases)
+  if (isVisible(30)) {
     ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
     ctx.font = 'bold 6px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('EXPANSION', ARENA_W / 2, RIVER_Y - 125);
+    ctx.fillText('EXPANSION', ARENA_W / 2, 30);
   }
-  if (isVisible(RIVER_Y + RIVER_H + 130)) {
+  if (isVisible(GAME_H - 30)) {
     ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
     ctx.font = 'bold 6px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('EXPANSION', ARENA_W / 2, RIVER_Y + RIVER_H + 125);
+    ctx.fillText('EXPANSION', ARENA_W / 2, GAME_H - 30);
   }
 }
 
@@ -3926,9 +3981,9 @@ function handleInput(x, y) {
             bx = geyser.x;
             baseY = geyser.y;
           } else if (bdef.isExpansion) {
-            // Place expansion near contested minerals on player side
+            // Place expansion behind main base (more protected)
             bx = ARENA_W / 2;
-            baseY = RIVER_Y + RIVER_H + 150;
+            baseY = GAME_H - 45;
           } else {
             baseY = GAME_H - 160;
             bx = 50 + playerBuildings.length * 35;
@@ -3936,7 +3991,7 @@ function handleInput(x, y) {
           playerBuildings.push({
             type: btn.type,
             x: bx, y: baseY,
-            hp: bdef.isExpansion ? 2000 : 500, maxHp: bdef.isExpansion ? 2000 : 500,
+            hp: bdef.isExpansion ? 2000 : (bdef.isDefense ? bdef.defenseHp : 500), maxHp: bdef.isExpansion ? 2000 : (bdef.isDefense ? bdef.defenseHp : 500),
             built: false, buildProgress: 0, buildTime: bdef.buildTime,
             queue: [],
           });
