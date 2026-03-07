@@ -209,6 +209,8 @@ let mineralPatches;
 // ---- Building System ----
 // Buildings are required to unlock unit types
 const BUILDING_DEFS = {
+  // Base (implicit, not buildable — produces workers)
+  _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R },
   // TERRAN
   barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','medic'], r:18 },
   factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','ghost'], requires:'barracks', r:18 },
@@ -257,11 +259,9 @@ const UNIT_DEFS = {
 // Worker type per faction
 const WORKER_TYPE = { terran:'scv', protoss:'probe', zerg:'drone' };
 
-// ---- Production Queue ----
-let playerQueue = []; // { type, timeLeft, totalTime }
-let enemyQueue = [];
-let selectedUnit = null; // unit type string selected in UI
-let uiScroll = 0; // scroll offset for production panel
+// ---- Stance System ----
+let playerStance = 'attack'; // 'attack' or 'defend'
+let enemyStance = 'attack';
 
 // ---- Units ----
 let units = [];
@@ -374,15 +374,14 @@ function startGame(faction) {
   units = [];
   particles = [];
   projectiles = [];
-  playerBuildings = [];
-  enemyBuildings = [];
-  playerQueue = [];
-  enemyQueue = [];
+  // Each side gets an implicit "base" building that produces workers
+  playerBuildings = [{ type: '_base', x: ARENA_W/2, y: GAME_H - 45, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
+  enemyBuildings = [{ type: '_base', x: ARENA_W/2, y: 45, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
   playerMinerals = 50;
   enemyMinerals = 50;
   gameTime = 0;
-  selectedUnit = null;
-  uiScroll = 0;
+  playerStance = 'attack';
+  enemyStance = 'attack';
   aiTimer = 0;
 
   // Start with 4 workers each
@@ -513,27 +512,32 @@ function updateWorker(unit, dt) {
   }
 }
 
-// ---- Production Queue ----
-function updateProductionQueue(queue, team, dt) {
-  if (queue.length === 0) return;
-  const item = queue[0];
-  item.timeLeft -= dt;
-  if (item.timeLeft <= 0) {
-    queue.shift();
-    if (item.isBuilding) {
-      // Place building
-      const buildings = team === 'player' ? playerBuildings : enemyBuildings;
-      const baseY = team === 'player' ? GAME_H - 80 : 80;
-      const bx = 50 + buildings.length * 45;
-      buildings.push({
-        type: item.type,
-        x: bx, y: baseY,
-        hp: 500, maxHp: 500,
-        built: false, buildProgress: 0, buildTime: 3,
-      });
-    } else {
-      // Spawn unit at base
-      const baseX = ARENA_W / 2;
+// ---- Production Queue (per-building) ----
+// Find which building produces a given unit type
+function getBuildingForUnit(unitType, buildings) {
+  const def = UNIT_DEFS[unitType];
+  if (def.worker) {
+    // Workers come from base
+    return buildings.find(b => b.type === '_base' && b.built);
+  }
+  for (const b of buildings) {
+    if (!b.built) continue;
+    const bdef = BUILDING_DEFS[b.type];
+    if (bdef && bdef.unlocks && bdef.unlocks.includes(unitType)) return b;
+  }
+  return null;
+}
+
+// Process all building queues for a team
+function updateAllBuildingQueues(buildings, team, dt) {
+  for (const b of buildings) {
+    if (!b.queue || b.queue.length === 0) continue;
+    if (!b.built) continue; // can't produce until built
+    const item = b.queue[0];
+    item.timeLeft -= dt;
+    if (item.timeLeft <= 0) {
+      b.queue.shift();
+      // Spawn unit near the building
       const baseY = team === 'player' ? GAME_H - 70 : 70;
       const lane = Math.random() < 0.5 ? 0 : 1;
       const x = LANE_X[lane] + (Math.random()-0.5)*30;
@@ -541,6 +545,7 @@ function updateProductionQueue(queue, team, dt) {
     }
   }
 }
+
 
 // ---- Update Buildings ----
 function updateBuildings(buildings, dt) {
@@ -558,9 +563,9 @@ function updateBuildings(buildings, dt) {
 function updateGame(dt) {
   gameTime += dt;
 
-  // Update production queues
-  updateProductionQueue(playerQueue, 'player', dt);
-  updateProductionQueue(enemyQueue, 'enemy', dt);
+  // Update per-building production queues
+  updateAllBuildingQueues(playerBuildings, 'player', dt);
+  updateAllBuildingQueues(enemyBuildings, 'enemy', dt);
 
   // Update buildings
   updateBuildings(playerBuildings, dt);
@@ -625,7 +630,15 @@ function updateGame(dt) {
       }
     } else {
       const isPlayer = unit.team === 'player';
-      const targetY = isPlayer ? 45 : GAME_H - 45;
+      const stance = isPlayer ? playerStance : enemyStance;
+      let targetY;
+      if (stance === 'defend') {
+        // In defend mode, hold near base side of river
+        targetY = isPlayer ? RIVER_Y + 40 : RIVER_Y - 40;
+      } else {
+        // Attack: push toward enemy base
+        targetY = isPlayer ? 45 : GAME_H - 45;
+      }
       if (Math.abs(unit.y - targetY) > 5) {
         const dir = targetY > unit.y ? 1 : -1;
         unit.y += dir * unit.speed * 50 * dt;
@@ -739,11 +752,12 @@ function updateEnemyAI(dt) {
   const workerCount = units.filter(u => !u.dead && u.team === 'enemy' && u.worker).length;
   const workerType = WORKER_TYPE[enemyFaction];
   const workerDef = UNIT_DEFS[workerType];
+  const baseBuilding = enemyBuildings.find(b => b.type === '_base');
 
-  // Phase 1: Build economy (first 30s focus on workers)
-  if (workerCount < 8 && enemyMinerals >= workerDef.cost && enemyQueue.length < 2) {
+  // Phase 1: Build economy (workers from base)
+  if (workerCount < 8 && enemyMinerals >= workerDef.cost && baseBuilding && baseBuilding.queue.length < 2) {
     enemyMinerals -= workerDef.cost;
-    enemyQueue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime, isBuilding: false });
+    baseBuilding.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
     return;
   }
 
@@ -752,31 +766,42 @@ function updateEnemyAI(dt) {
   if (availBuildings.length > 0) {
     const btype = availBuildings[0];
     const bdef = BUILDING_DEFS[btype];
-    if (enemyMinerals >= bdef.cost && enemyQueue.length < 2) {
+    if (enemyMinerals >= bdef.cost) {
       enemyMinerals -= bdef.cost;
-      enemyQueue.push({ type: btype, timeLeft: bdef.buildTime, totalTime: bdef.buildTime, isBuilding: true });
+      // Place the building directly
+      const baseY = 80;
+      const bx = 50 + enemyBuildings.length * 45;
+      enemyBuildings.push({
+        type: btype,
+        x: bx, y: baseY,
+        hp: 500, maxHp: 500,
+        built: false, buildProgress: 0, buildTime: bdef.buildTime,
+        queue: [],
+      });
       return;
     }
   }
 
-  // Phase 3: Build combat units
+  // Phase 3: Build combat units (queue on appropriate buildings)
   const availUnits = getAvailableUnits('enemy');
   const combatUnits = availUnits.filter(u => !UNIT_DEFS[u].worker);
-  if (combatUnits.length > 0 && enemyQueue.length < 3) {
-    // Pick random affordable combat unit
+  if (combatUnits.length > 0) {
     const affordable = combatUnits.filter(u => UNIT_DEFS[u].cost <= enemyMinerals);
     if (affordable.length > 0) {
       const pick = affordable[Math.floor(Math.random() * affordable.length)];
-      const def = UNIT_DEFS[pick];
-      enemyMinerals -= def.cost;
-      enemyQueue.push({ type: pick, timeLeft: def.buildTime, totalTime: def.buildTime, isBuilding: false });
+      const building = getBuildingForUnit(pick, enemyBuildings);
+      if (building && building.queue.length < 3) {
+        const def = UNIT_DEFS[pick];
+        enemyMinerals -= def.cost;
+        building.queue.push({ type: pick, timeLeft: def.buildTime, totalTime: def.buildTime });
+      }
     }
   }
 
   // Keep building workers up to 12
-  if (workerCount < 12 && enemyMinerals >= workerDef.cost && enemyQueue.length < 2) {
+  if (workerCount < 12 && enemyMinerals >= workerDef.cost && baseBuilding && baseBuilding.queue.length < 2) {
     enemyMinerals -= workerDef.cost;
-    enemyQueue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime, isBuilding: false });
+    baseBuilding.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
   }
 }
 
@@ -2129,25 +2154,32 @@ function drawHUD() {
   ctx.font = '9px monospace';
   ctx.fillText(`Workers: ${workerCount}`, 5, GAME_H - 4);
 
-  // Production queue indicator on arena
-  if (playerQueue.length > 0) {
-    const q = playerQueue[0];
+  // Per-building production indicators on arena
+  let qy = GAME_H - 16;
+  for (const b of playerBuildings) {
+    if (!b.queue || b.queue.length === 0 || !b.built) continue;
+    const q = b.queue[0];
     const frac = 1 - q.timeLeft / q.totalTime;
+    const bname = BUILDING_DEFS[b.type] ? BUILDING_DEFS[b.type].name : 'Base';
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(5, GAME_H - 16, 80, 10);
+    ctx.fillRect(5, qy, 80, 10);
     ctx.fillStyle = '#ffaa00';
-    ctx.fillRect(5, GAME_H - 16, 80 * frac, 10);
+    ctx.fillRect(5, qy, 80 * frac, 10);
     ctx.fillStyle = '#fff';
     ctx.font = '7px monospace';
     ctx.textAlign = 'left';
-    const qname = q.isBuilding ? BUILDING_DEFS[q.type].name : UNIT_DEFS[q.type].name;
-    ctx.fillText(qname, 7, GAME_H - 8);
+    const uname = UNIT_DEFS[q.type] ? UNIT_DEFS[q.type].name : q.type;
+    ctx.fillText(`${uname}`, 7, qy + 8);
+    qy -= 12;
+    if (qy < GAME_H - 50) break;
   }
 }
 
 // ---- Right Side Production Panel ----
 const BTN_H = 36;
 const BTN_W = PANEL_W - 8;
+
+let panelScroll = 0;
 
 function drawProductionPanel() {
   const px = ARENA_W; // panel x start
@@ -2173,62 +2205,120 @@ function drawProductionPanel() {
 
   let y = 32;
 
-  // Queue display
-  if (playerQueue.length > 0) {
-    ctx.fillStyle = 'rgba(255,170,0,0.15)';
-    ctx.fillRect(px + 2, y, BTN_W + 4, 18);
-    const q = playerQueue[0];
-    const frac = 1 - q.timeLeft / q.totalTime;
-    ctx.fillStyle = '#ffaa00';
-    ctx.fillRect(px + 3, y + 12, (BTN_W + 2) * frac, 4);
-    ctx.fillStyle = '#ffcc44';
-    ctx.font = '7px monospace';
+  // Stance buttons
+  const stanceY = y;
+  const halfW = (PANEL_W - 12) / 2;
+  // Attack button
+  ctx.fillStyle = playerStance === 'attack' ? '#aa3333' : '#332222';
+  roundRect(ctx, px + 4, stanceY, halfW, 16, 3, true, false);
+  ctx.strokeStyle = playerStance === 'attack' ? '#ff4444' : '#553333';
+  ctx.lineWidth = 1;
+  roundRect(ctx, px + 4, stanceY, halfW, 16, 3, false, true);
+  ctx.fillStyle = playerStance === 'attack' ? '#fff' : '#888';
+  ctx.font = 'bold 6px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('ATK', px + 4 + halfW/2, stanceY + 11);
+
+  // Defend button
+  ctx.fillStyle = playerStance === 'defend' ? '#3333aa' : '#222233';
+  roundRect(ctx, px + 6 + halfW, stanceY, halfW, 16, 3, true, false);
+  ctx.strokeStyle = playerStance === 'defend' ? '#4444ff' : '#333355';
+  ctx.lineWidth = 1;
+  roundRect(ctx, px + 6 + halfW, stanceY, halfW, 16, 3, false, true);
+  ctx.fillStyle = playerStance === 'defend' ? '#fff' : '#888';
+  ctx.font = 'bold 6px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('DEF', px + 6 + halfW + halfW/2, stanceY + 11);
+  y += 22;
+
+  // Per-building sections: show each building, its queue, and producible units
+  for (const b of playerBuildings) {
+    if (y > GAME_H - 10) break;
+    const bdef = BUILDING_DEFS[b.type];
+    if (!bdef) continue;
+
+    // Building header
+    ctx.fillStyle = b.built ? fc.primary : '#666';
+    ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
-    const qname = q.isBuilding ? BUILDING_DEFS[q.type].name : UNIT_DEFS[q.type].name;
-    ctx.fillText(`Building: ${qname}`, px + PANEL_W/2, y + 10);
-    y += 20;
-    // Show queue count
-    if (playerQueue.length > 1) {
-      ctx.fillStyle = '#888';
-      ctx.font = '7px monospace';
-      ctx.fillText(`+${playerQueue.length-1} queued`, px + PANEL_W/2, y + 6);
-      y += 10;
+    const bname = b.type === '_base' ? 'BASE' : bdef.name.toUpperCase();
+    ctx.fillText(bname, px + PANEL_W/2, y + 7);
+    y += 10;
+
+    // Show if building is under construction
+    if (!b.built) {
+      const frac = b.buildProgress / b.buildTime;
+      ctx.fillStyle = 'rgba(255,170,0,0.2)';
+      ctx.fillRect(px + 4, y, BTN_W, 8);
+      ctx.fillStyle = '#ffaa00';
+      ctx.fillRect(px + 4, y, BTN_W * frac, 8);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '6px monospace';
+      ctx.fillText('BUILDING...', px + PANEL_W/2, y + 7);
+      y += 14;
+      continue;
     }
+
+    // Queue progress bar for this building
+    if (b.queue && b.queue.length > 0) {
+      const q = b.queue[0];
+      const frac = 1 - q.timeLeft / q.totalTime;
+      ctx.fillStyle = 'rgba(255,170,0,0.15)';
+      ctx.fillRect(px + 4, y, BTN_W, 12);
+      ctx.fillStyle = '#ffaa00';
+      ctx.fillRect(px + 4, y + 8, BTN_W * frac, 3);
+      ctx.fillStyle = '#ffcc44';
+      ctx.font = '6px monospace';
+      const uname = UNIT_DEFS[q.type] ? UNIT_DEFS[q.type].name : q.type;
+      ctx.fillText(uname + (b.queue.length > 1 ? ` +${b.queue.length-1}` : ''), px + PANEL_W/2, y + 8);
+      y += 14;
+    }
+
+    // Show producible units for this building
+    const producible = getProducibleUnits(b);
+    for (const utype of producible) {
+      if (y > GAME_H - 10) break;
+      const def = UNIT_DEFS[utype];
+      const affordable = def.cost <= playerMinerals;
+      drawPanelButton(px + 4, y, utype, def.name, def.cost, affordable, false, false);
+      y += BTN_H + 2;
+    }
+
+    y += 4;
+    // Separator line
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(px + 8, y); ctx.lineTo(px + PANEL_W - 8, y); ctx.stroke();
+    y += 4;
   }
 
-  y += 4;
-
-  // Section: Buildings
+  // Section: Available buildings to construct
   const availBuildings = getAvailableBuildings('player');
-  if (availBuildings.length > 0) {
+  if (availBuildings.length > 0 && y < GAME_H - 50) {
     ctx.fillStyle = '#666';
     ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('BUILDINGS', px + PANEL_W/2, y + 6);
+    ctx.fillText('BUILD', px + PANEL_W/2, y + 6);
     y += 12;
     for (const btype of availBuildings) {
+      if (y > GAME_H - 10) break;
       const bdef = BUILDING_DEFS[btype];
       const affordable = bdef.cost <= playerMinerals;
-      drawPanelButton(px + 4, y, btype, bdef.name, bdef.cost, affordable, selectedUnit === btype, true);
+      drawPanelButton(px + 4, y, btype, bdef.name, bdef.cost, affordable, false, true);
       y += BTN_H + 3;
     }
   }
+}
 
-  // Section: Units
-  const availUnits = getAvailableUnits('player');
-  ctx.fillStyle = '#666';
-  ctx.font = 'bold 7px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('UNITS', px + PANEL_W/2, y + 6);
-  y += 12;
-
-  for (const utype of availUnits) {
-    if (y > GAME_H - 10) break; // don't draw off screen
-    const def = UNIT_DEFS[utype];
-    const affordable = def.cost <= playerMinerals;
-    drawPanelButton(px + 4, y, utype, def.name, def.cost, affordable, selectedUnit === utype, false);
-    y += BTN_H + 3;
+// Get the units a specific building can produce
+function getProducibleUnits(building) {
+  const bdef = BUILDING_DEFS[building.type];
+  if (!bdef) return [];
+  if (building.type === '_base') {
+    const faction = playerFaction; // this is only called for player buildings
+    return [WORKER_TYPE[faction]];
   }
+  return bdef.unlocks || [];
 }
 
 function drawPanelButton(bx, by, type, name, cost, affordable, selected, isBuilding) {
@@ -2311,37 +2401,58 @@ function gameToCanvas(tx, ty) {
   return { x: cx, y: cy };
 }
 
-// Get the list of panel buttons for hit testing
+// Get the list of panel buttons for hit testing (mirrors drawProductionPanel layout)
 function getPanelButtons() {
   const px = ARENA_W;
   const buttons = [];
   let y = 32;
 
-  // Skip queue display
-  if (playerQueue.length > 0) {
-    y += 20;
-    if (playerQueue.length > 1) y += 10;
-  }
-  y += 4;
+  // Stance buttons
+  const halfW = (PANEL_W - 12) / 2;
+  buttons.push({ type: '_stance_attack', x: px + 4, y, w: halfW, h: 16, isStance: true });
+  buttons.push({ type: '_stance_defend', x: px + 6 + halfW, y, w: halfW, h: 16, isStance: true });
+  y += 22;
 
-  // Buildings
+  // Per-building sections
+  for (const b of playerBuildings) {
+    if (y > GAME_H - 10) break;
+    const bdef = BUILDING_DEFS[b.type];
+    if (!bdef) continue;
+
+    y += 10; // building header
+
+    if (!b.built) {
+      y += 14;
+      continue;
+    }
+
+    // Queue progress area
+    if (b.queue && b.queue.length > 0) {
+      y += 14;
+    }
+
+    // Producible units
+    const producible = getProducibleUnits(b);
+    for (const utype of producible) {
+      if (y > GAME_H - 10) break;
+      buttons.push({ type: utype, x: px + 4, y, isBuilding: false, building: b });
+      y += BTN_H + 2;
+    }
+
+    y += 4 + 4; // separator
+  }
+
+  // Available buildings to construct
   const availBuildings = getAvailableBuildings('player');
-  if (availBuildings.length > 0) {
+  if (availBuildings.length > 0 && y < GAME_H - 50) {
     y += 12;
     for (const btype of availBuildings) {
+      if (y > GAME_H - 10) break;
       buttons.push({ type: btype, x: px + 4, y, isBuilding: true });
       y += BTN_H + 3;
     }
   }
 
-  // Units
-  y += 12;
-  const availUnits = getAvailableUnits('player');
-  for (const utype of availUnits) {
-    if (y > GAME_H - 10) break;
-    buttons.push({ type: utype, x: px + 4, y, isBuilding: false });
-    y += BTN_H + 3;
-  }
   return buttons;
 }
 
@@ -2351,18 +2462,39 @@ function handleInput(x, y) {
   // Check panel buttons
   const buttons = getPanelButtons();
   for (const btn of buttons) {
-    if (x >= btn.x && x <= btn.x + BTN_W && y >= btn.y && y <= btn.y + BTN_H) {
+    const bw = btn.w || BTN_W;
+    const bh = btn.h || BTN_H;
+    if (x >= btn.x && x <= btn.x + bw && y >= btn.y && y <= btn.y + bh) {
+      // Stance buttons
+      if (btn.isStance) {
+        if (btn.type === '_stance_attack') playerStance = 'attack';
+        if (btn.type === '_stance_defend') playerStance = 'defend';
+        return;
+      }
+      // Building construction
       if (btn.isBuilding) {
         const bdef = BUILDING_DEFS[btn.type];
-        if (bdef.cost <= playerMinerals && playerQueue.length < 5) {
+        if (bdef.cost <= playerMinerals) {
           playerMinerals -= bdef.cost;
-          playerQueue.push({ type: btn.type, timeLeft: bdef.buildTime, totalTime: bdef.buildTime, isBuilding: true });
+          const baseY = GAME_H - 80;
+          const bx = 50 + playerBuildings.length * 45;
+          playerBuildings.push({
+            type: btn.type,
+            x: bx, y: baseY,
+            hp: 500, maxHp: 500,
+            built: false, buildProgress: 0, buildTime: bdef.buildTime,
+            queue: [],
+          });
         }
-      } else {
-        const def = UNIT_DEFS[btn.type];
-        if (def.cost <= playerMinerals && playerQueue.length < 5) {
+        return;
+      }
+      // Unit production — queue on the correct building
+      const def = UNIT_DEFS[btn.type];
+      if (def && def.cost <= playerMinerals) {
+        const building = btn.building || getBuildingForUnit(btn.type, playerBuildings);
+        if (building && building.queue.length < 5) {
           playerMinerals -= def.cost;
-          playerQueue.push({ type: btn.type, timeLeft: def.buildTime, totalTime: def.buildTime, isBuilding: false });
+          building.queue.push({ type: btn.type, timeLeft: def.buildTime, totalTime: def.buildTime });
         }
       }
       return;
