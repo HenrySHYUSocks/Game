@@ -150,12 +150,15 @@ const FACTION_COLORS = {
   zerg: { primary: '#ff4444', dark: '#662222', light: '#ff8888' }
 };
 
+// ---- Layout ----
+const PANEL_W = 90;
+const ARENA_W = GAME_W - PANEL_W;
+
 // ---- Arena Layout ----
-// Two lanes with bridges over a river in the middle
 const RIVER_Y = GAME_H * 0.43;
 const RIVER_H = 18;
 const BRIDGE_W = 70;
-const LANE_X = [GAME_W * 0.28, GAME_W * 0.72];
+const LANE_X = [ARENA_W * 0.30, ARENA_W * 0.70];
 
 // Towers / Bases
 const TOWER_R = 22;
@@ -166,96 +169,139 @@ function makeTowers() {
     player: {
       left:  { x: LANE_X[0], y: GAME_H - 100, hp: 1200, maxHp: 1200, r: TOWER_R },
       right: { x: LANE_X[1], y: GAME_H - 100, hp: 1200, maxHp: 1200, r: TOWER_R },
-      base:  { x: GAME_W / 2, y: GAME_H - 45,  hp: 2400, maxHp: 2400, r: BASE_R }
+      base:  { x: ARENA_W / 2, y: GAME_H - 45,  hp: 2400, maxHp: 2400, r: BASE_R }
     },
     enemy: {
       left:  { x: LANE_X[0], y: 100, hp: 1200, maxHp: 1200, r: TOWER_R },
       right: { x: LANE_X[1], y: 100, hp: 1200, maxHp: 1200, r: TOWER_R },
-      base:  { x: GAME_W / 2, y: 45,  hp: 2400, maxHp: 2400, r: BASE_R }
+      base:  { x: ARENA_W / 2, y: 45,  hp: 2400, maxHp: 2400, r: BASE_R }
     }
   };
 }
 
 let towers;
 
-// ---- Minerals (Elixir equivalent) ----
-let playerMinerals = 5;
-let enemyMinerals = 5;
-const MAX_MINERALS = 10;
-const MINERAL_RATE = 0.4; // per second
+// ---- Mineral System ----
+let playerMinerals = 50;
+let enemyMinerals = 50;
+const MAX_MINERALS = 9999;
+const MINERAL_PER_TRIP = 5;
+const MINE_TIME = 1.5; // seconds to mine at patch
+const CARRY_AMOUNT = 5;
+
+// 3 mineral patches per side
+function makeMineralPatches() {
+  return {
+    player: [
+      { x: 50,  y: GAME_H - 55, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2, y: GAME_H - 48, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W - 50, y: GAME_H - 55, minerals: 1500, maxMinerals: 1500 },
+    ],
+    enemy: [
+      { x: 50,  y: 55, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2, y: 48, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W - 50, y: 55, minerals: 1500, maxMinerals: 1500 },
+    ]
+  };
+}
+let mineralPatches;
+
+// ---- Building System ----
+// Buildings are required to unlock unit types
+const BUILDING_DEFS = {
+  // TERRAN
+  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','medic'], r:18 },
+  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','ghost'], requires:'barracks', r:18 },
+  // PROTOSS
+  gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','sentry'], r:18 },
+  robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robo Bay', unlocks:['immortal','hightemplar'], requires:'gateway', r:18 },
+  // ZERG
+  pool:      { faction:'zerg', cost:150, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','baneling'], r:18 },
+  den:       { faction:'zerg', cost:200, buildTime:12, name:'Hydra Den', unlocks:['hydralisk','ultralisk'], requires:'pool', r:18 },
+};
+
+const FACTION_BUILDINGS = {
+  terran: ['barracks','factory'],
+  protoss: ['gateway','robo'],
+  zerg: ['pool','den'],
+};
+
+let playerBuildings = []; // { type, x, y, hp, maxHp, built, buildProgress, buildTime }
+let enemyBuildings = [];
 
 // ---- Unit Definitions ----
 const UNIT_DEFS = {
   // TERRAN
-  marine:       { faction:'terran', cost:3, hp:280, dmg:35, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine' },
-  marauder:     { faction:'terran', cost:4, hp:500, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, color:'#336699', name:'Marauder' },
-  medic:        { faction:'terran', cost:3, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40 },
-  siegetank:    { faction:'terran', cost:6, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30 },
-  ghost:        { faction:'terran', cost:5, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost' },
-  scv:          { faction:'terran', cost:2, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3 },
+  marine:       { faction:'terran', cost:50,  hp:280, dmg:35, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine', buildTime:3 },
+  marauder:     { faction:'terran', cost:100, hp:500, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, color:'#336699', name:'Marauder', buildTime:4 },
+  medic:        { faction:'terran', cost:75,  hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:3 },
+  siegetank:    { faction:'terran', cost:200, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:6 },
+  ghost:        { faction:'terran', cost:175, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost', buildTime:5 },
+  scv:          { faction:'terran', cost:50,  hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3, buildTime:2 },
   // PROTOSS
-  zealot:       { faction:'protoss', cost:3, hp:400, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot' },
-  stalker:      { faction:'protoss', cost:4, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker' },
-  sentry:       { faction:'protoss', cost:3, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:100 },
-  hightemplar:  { faction:'protoss', cost:6, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:50 },
-  immortal:     { faction:'protoss', cost:5, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal' },
-  probe:        { faction:'protoss', cost:2, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3 },
+  zealot:       { faction:'protoss', cost:75,  hp:400, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
+  stalker:      { faction:'protoss', cost:125, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
+  sentry:       { faction:'protoss', cost:100, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:100, buildTime:3 },
+  hightemplar:  { faction:'protoss', cost:200, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:50, buildTime:6 },
+  immortal:     { faction:'protoss', cost:175, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:5 },
+  probe:        { faction:'protoss', cost:50,  hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
   // ZERG
-  zergling:     { faction:'zerg', cost:2, hp:150, dmg:25, speed:2.0, range:18,  atkSpeed:0.5, count:6, r:6,  color:'#ff4444', name:'Zergling' },
-  roach:        { faction:'zerg', cost:3, hp:450, dmg:30, speed:1.0, range:80,  atkSpeed:0.9, count:2, r:10, color:'#aa3333', name:'Roach' },
-  hydralisk:    { faction:'zerg', cost:4, hp:300, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk' },
-  baneling:     { faction:'zerg', cost:3, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35 },
-  ultralisk:    { faction:'zerg', cost:7, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25 },
-  drone:        { faction:'zerg', cost:2, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3 },
+  zergling:     { faction:'zerg', cost:50,  hp:150, dmg:25, speed:2.0, range:18,  atkSpeed:0.5, count:6, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
+  roach:        { faction:'zerg', cost:75,  hp:450, dmg:30, speed:1.0, range:80,  atkSpeed:0.9, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
+  hydralisk:    { faction:'zerg', cost:125, hp:300, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:4 },
+  baneling:     { faction:'zerg', cost:75,  hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:3 },
+  ultralisk:    { faction:'zerg', cost:300, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25, buildTime:8 },
+  drone:        { faction:'zerg', cost:50,  hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3, buildTime:2 },
 };
 
-const FACTION_CARDS = {
-  terran:  ['marine','marauder','medic','siegetank','ghost','scv'],
-  protoss: ['zealot','stalker','sentry','hightemplar','immortal','probe'],
-  zerg:    ['zergling','roach','hydralisk','baneling','ultralisk','drone'],
-};
+// Worker type per faction
+const WORKER_TYPE = { terran:'scv', protoss:'probe', zerg:'drone' };
 
-// ---- Card Hand ----
-let playerDeck = [];
-let playerHand = []; // 4 cards
-let nextCard = null;
-let selectedCard = -1;
-
-let enemyDeck = [];
-let enemyHand = [];
-let enemyNextCard = null;
+// ---- Production Queue ----
+let playerQueue = []; // { type, timeLeft, totalTime }
+let enemyQueue = [];
+let selectedUnit = null; // unit type string selected in UI
+let uiScroll = 0; // scroll offset for production panel
 
 // ---- Units ----
 let units = [];
 let particles = [];
 let projectiles = [];
 
-// ---- Shuffle ----
-function shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+// ---- Get available units for a team ----
+function getAvailableUnits(team) {
+  const faction = team === 'player' ? playerFaction : enemyFaction;
+  const buildings = team === 'player' ? playerBuildings : enemyBuildings;
+  const workerType = WORKER_TYPE[faction];
+  const available = [workerType]; // workers always available
+  for (const b of buildings) {
+    if (!b.built) continue;
+    const bdef = BUILDING_DEFS[b.type];
+    if (bdef && bdef.unlocks) {
+      for (const u of bdef.unlocks) available.push(u);
+    }
   }
-  return arr;
+  return available;
 }
 
-function initDeck(faction) {
-  const cards = FACTION_CARDS[faction];
-  let deck = [];
-  for (let i = 0; i < 4; i++) deck.push(...cards);
-  return shuffle(deck);
-}
-
-function drawCard(deck) {
-  if (deck.length === 0) return null;
-  return deck.pop();
-}
-
-function initHand(deck) {
-  const hand = [];
-  for (let i = 0; i < 4; i++) hand.push(drawCard(deck));
-  const next = drawCard(deck);
-  return { hand, next };
+function getAvailableBuildings(team) {
+  const faction = team === 'player' ? playerFaction : enemyFaction;
+  const buildings = team === 'player' ? playerBuildings : enemyBuildings;
+  const all = FACTION_BUILDINGS[faction];
+  const available = [];
+  for (const btype of all) {
+    const bdef = BUILDING_DEFS[btype];
+    // Check if already have one (built or building)
+    const exists = buildings.some(b => b.type === btype);
+    if (exists) continue;
+    // Check prerequisite
+    if (bdef.requires) {
+      const hasReq = buildings.some(b => b.type === bdef.requires && b.built);
+      if (!hasReq) continue;
+    }
+    available.push(btype);
+  }
+  return available;
 }
 
 // ---- Spawn Units ----
@@ -291,6 +337,11 @@ function spawnUnit(defName, x, y, team) {
       mineRate: def.mineRate || 0,
       target: null,
       animFrame: 0,
+      // Worker mining state
+      miningState: 'idle', // idle, toMineral, mining, toBase
+      miningTimer: 0,
+      assignedPatch: null,
+      carrying: 0,
     });
   }
 }
@@ -319,23 +370,28 @@ function startGame(faction) {
   document.getElementById('gameOverScreen').style.display = 'none';
 
   towers = makeTowers();
+  mineralPatches = makeMineralPatches();
   units = [];
   particles = [];
   projectiles = [];
-  playerMinerals = 5;
-  enemyMinerals = 5;
+  playerBuildings = [];
+  enemyBuildings = [];
+  playerQueue = [];
+  enemyQueue = [];
+  playerMinerals = 50;
+  enemyMinerals = 50;
   gameTime = 0;
-  selectedCard = -1;
+  selectedUnit = null;
+  uiScroll = 0;
+  aiTimer = 0;
 
-  playerDeck = initDeck(playerFaction);
-  const ph = initHand(playerDeck);
-  playerHand = ph.hand;
-  nextCard = ph.next;
-
-  enemyDeck = initDeck(enemyFaction);
-  const eh = initHand(enemyDeck);
-  enemyHand = eh.hand;
-  enemyNextCard = eh.next;
+  // Start with 4 workers each
+  const pw = WORKER_TYPE[playerFaction];
+  const ew = WORKER_TYPE[enemyFaction];
+  for (let i = 0; i < 4; i++) {
+    spawnUnit(pw, ARENA_W/2 + (Math.random()-0.5)*30, GAME_H - 55 + (Math.random()-0.5)*15, 'player');
+    spawnUnit(ew, ARENA_W/2 + (Math.random()-0.5)*30, 55 + (Math.random()-0.5)*15, 'enemy');
+  }
 
   gameRunning = true;
   lastTime = performance.now();
@@ -347,21 +403,29 @@ function dist(a, b) {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
+function findNearestPatch(unit) {
+  const patches = unit.team === 'player' ? mineralPatches.player : mineralPatches.enemy;
+  let best = null, bestD = Infinity;
+  for (const p of patches) {
+    if (p.minerals <= 0) continue;
+    const d = dist(unit, p);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+
 function findTarget(unit) {
   const isPlayer = unit.team === 'player';
   let best = null;
   let bestDist = Infinity;
 
-  // Find closest enemy unit
   for (const u of units) {
     if (u.dead || u.team === unit.team) continue;
-    // Healers only target friendly
     if (unit.healer) continue;
     const d = dist(unit, u);
     if (d < bestDist) { bestDist = d; best = u; }
   }
 
-  // Healers: target injured friendly
   if (unit.healer) {
     bestDist = Infinity;
     for (const u of units) {
@@ -373,7 +437,6 @@ function findTarget(unit) {
     return best;
   }
 
-  // Check towers
   const enemyTowers = isPlayer ? towers.enemy : towers.player;
   for (const key of ['left', 'right', 'base']) {
     const t = enemyTowers[key];
@@ -385,21 +448,123 @@ function findTarget(unit) {
   return best;
 }
 
+// ---- Worker Mining Logic ----
+function updateWorker(unit, dt) {
+  const baseX = ARENA_W / 2;
+  const baseY = unit.team === 'player' ? GAME_H - 45 : 45;
+  const moveSpeed = unit.speed * 60;
+
+  switch (unit.miningState) {
+    case 'idle': {
+      // Find nearest mineral patch
+      const patch = findNearestPatch(unit);
+      if (patch) {
+        unit.assignedPatch = patch;
+        unit.miningState = 'toMineral';
+      }
+      break;
+    }
+    case 'toMineral': {
+      if (!unit.assignedPatch || unit.assignedPatch.minerals <= 0) {
+        unit.miningState = 'idle';
+        break;
+      }
+      const d = dist(unit, unit.assignedPatch);
+      if (d < 12) {
+        unit.miningState = 'mining';
+        unit.miningTimer = MINE_TIME;
+      } else {
+        const angle = Math.atan2(unit.assignedPatch.y - unit.y, unit.assignedPatch.x - unit.x);
+        unit.x += Math.cos(angle) * moveSpeed * dt;
+        unit.y += Math.sin(angle) * moveSpeed * dt;
+      }
+      break;
+    }
+    case 'mining': {
+      unit.miningTimer -= dt;
+      // Mining sparkle
+      if (Math.random() < 0.08) {
+        spawnParticle(unit.x + (Math.random()-0.5)*8, unit.y + (Math.random()-0.5)*8, '#44ccff', 2);
+      }
+      if (unit.miningTimer <= 0) {
+        const amount = Math.min(CARRY_AMOUNT, unit.assignedPatch.minerals);
+        unit.assignedPatch.minerals -= amount;
+        unit.carrying = amount;
+        unit.miningState = 'toBase';
+      }
+      break;
+    }
+    case 'toBase': {
+      const d = dist(unit, { x: baseX, y: baseY });
+      if (d < 20) {
+        // Deliver minerals
+        if (unit.team === 'player') playerMinerals += unit.carrying;
+        else enemyMinerals += unit.carrying;
+        unit.carrying = 0;
+        spawnParticle(unit.x, unit.y, '#44ccff', 3);
+        unit.miningState = 'idle';
+      } else {
+        const angle = Math.atan2(baseY - unit.y, baseX - unit.x);
+        unit.x += Math.cos(angle) * moveSpeed * dt;
+        unit.y += Math.sin(angle) * moveSpeed * dt;
+      }
+      break;
+    }
+  }
+}
+
+// ---- Production Queue ----
+function updateProductionQueue(queue, team, dt) {
+  if (queue.length === 0) return;
+  const item = queue[0];
+  item.timeLeft -= dt;
+  if (item.timeLeft <= 0) {
+    queue.shift();
+    if (item.isBuilding) {
+      // Place building
+      const buildings = team === 'player' ? playerBuildings : enemyBuildings;
+      const baseY = team === 'player' ? GAME_H - 80 : 80;
+      const bx = 50 + buildings.length * 45;
+      buildings.push({
+        type: item.type,
+        x: bx, y: baseY,
+        hp: 500, maxHp: 500,
+        built: false, buildProgress: 0, buildTime: 3,
+      });
+    } else {
+      // Spawn unit at base
+      const baseX = ARENA_W / 2;
+      const baseY = team === 'player' ? GAME_H - 70 : 70;
+      const lane = Math.random() < 0.5 ? 0 : 1;
+      const x = LANE_X[lane] + (Math.random()-0.5)*30;
+      spawnUnit(item.type, x, baseY, team);
+    }
+  }
+}
+
+// ---- Update Buildings ----
+function updateBuildings(buildings, dt) {
+  for (const b of buildings) {
+    if (!b.built) {
+      b.buildProgress += dt;
+      if (b.buildProgress >= b.buildTime) {
+        b.built = true;
+      }
+    }
+  }
+}
+
 // ---- Game Logic Update ----
 function updateGame(dt) {
   gameTime += dt;
 
-  // Mineral generation (boosted by workers)
-  let playerWorkerBoost = 0;
-  let enemyWorkerBoost = 0;
-  for (const u of units) {
-    if (u.dead || !u.worker) continue;
-    if (u.team === 'player') playerWorkerBoost += u.mineRate;
-    else enemyWorkerBoost += u.mineRate;
-  }
-  const baseRate = gameTime > 120 ? MINERAL_RATE * 2 : MINERAL_RATE;
-  playerMinerals = Math.min(MAX_MINERALS, playerMinerals + (baseRate + playerWorkerBoost) * dt);
-  enemyMinerals = Math.min(MAX_MINERALS, enemyMinerals + (baseRate + enemyWorkerBoost) * dt);
+  // Update production queues
+  updateProductionQueue(playerQueue, 'player', dt);
+  updateProductionQueue(enemyQueue, 'enemy', dt);
+
+  // Update buildings
+  updateBuildings(playerBuildings, dt);
+  updateBuildings(enemyBuildings, dt);
 
   // AI
   updateEnemyAI(dt);
@@ -409,24 +574,9 @@ function updateGame(dt) {
     if (unit.dead) continue;
     unit.animFrame += dt * 5;
 
-    // Workers walk to base area and mine
+    // Workers mine
     if (unit.worker) {
-      const baseY = unit.team === 'player' ? GAME_H - 60 : 60;
-      const baseX = GAME_W / 2;
-      const d = dist(unit, { x: baseX, y: baseY });
-      if (d > 25) {
-        const angle = Math.atan2(baseY - unit.y, baseX - unit.x);
-        unit.x += Math.cos(angle) * unit.speed * 50 * dt;
-        unit.y += Math.sin(angle) * unit.speed * 50 * dt;
-      } else {
-        // Bob around the base area while mining
-        unit.x += Math.sin(gameTime * 3 + unit.y) * 0.3;
-        unit.y += Math.cos(gameTime * 2 + unit.x) * 0.3;
-        // Sparkle effect for mining
-        if (Math.random() < 0.03) {
-          spawnParticle(unit.x + (Math.random() - 0.5) * 10, unit.y + (Math.random() - 0.5) * 10, '#44ccff', 2);
-        }
-      }
+      updateWorker(unit, dt);
       continue;
     }
 
@@ -438,7 +588,6 @@ function updateGame(dt) {
       const targetR = target.r || 0;
 
       if (d - targetR <= unit.range) {
-        // Attack
         unit.atkTimer -= dt;
         if (unit.atkTimer <= 0) {
           unit.atkTimer = unit.atkSpeed;
@@ -447,7 +596,6 @@ function updateGame(dt) {
             target.hp = Math.min(target.maxHp, target.hp + unit.healAmt);
             spawnParticle(target.x, target.y, '#88ff88', 8);
           } else if (unit.suicide) {
-            // Suicide unit
             if (unit.splash > 0) {
               dealSplash(unit.x, unit.y, unit.splash, unit.dmg, unit.team);
             } else {
@@ -458,7 +606,6 @@ function updateGame(dt) {
             unit.dead = true;
           } else {
             if (unit.range > 40) {
-              // Ranged: projectile
               projectiles.push({ x: unit.x, y: unit.y, tx: target.x, ty: target.y, dmg: unit.dmg, team: unit.team, speed: 250, color: unit.color, splash: unit.splash, target });
             } else {
               if (unit.splash > 0) {
@@ -471,14 +618,12 @@ function updateGame(dt) {
           }
         }
       } else {
-        // Move toward target
         const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
         const moveSpeed = unit.speed * 50;
         unit.x += Math.cos(angle) * moveSpeed * dt;
         unit.y += Math.sin(angle) * moveSpeed * dt;
       }
     } else {
-      // No target, advance toward enemy base
       const isPlayer = unit.team === 'player';
       const targetY = isPlayer ? 45 : GAME_H - 45;
       if (Math.abs(unit.y - targetY) > 5) {
@@ -491,10 +636,8 @@ function updateGame(dt) {
   // Projectiles
   for (const p of projectiles) {
     const angle = Math.atan2(p.ty - p.y, p.tx - p.x);
-    const dx = Math.cos(angle) * p.speed * dt;
-    const dy = Math.sin(angle) * p.speed * dt;
-    p.x += dx;
-    p.y += dy;
+    p.x += Math.cos(angle) * p.speed * dt;
+    p.y += Math.sin(angle) * p.speed * dt;
     if (Math.abs(p.x - p.tx) < 10 && Math.abs(p.y - p.ty) < 10) {
       if (p.splash > 0) {
         dealSplash(p.tx, p.ty, p.splash, p.dmg, p.team);
@@ -529,8 +672,8 @@ function updateGame(dt) {
   if (towers.enemy.base.hp <= 0) { endGame(true); }
   if (towers.player.base.hp <= 0) { endGame(false); }
 
-  // Time limit: 3 minutes
-  if (gameTime > 180) {
+  // Time limit: 10 minutes
+  if (gameTime > 600) {
     const playerTotal = towers.player.left.hp + towers.player.right.hp + towers.player.base.hp;
     const enemyTotal = towers.enemy.left.hp + towers.enemy.right.hp + towers.enemy.base.hp;
     endGame(playerTotal > enemyTotal);
@@ -557,7 +700,6 @@ function dealSplash(x, y, radius, dmg, attackerTeam) {
       dealDamage(u, dmg);
     }
   }
-  // Also damage towers
   const enemyTowers = attackerTeam === 'player' ? towers.enemy : towers.player;
   for (const key of ['left', 'right', 'base']) {
     const t = enemyTowers[key];
@@ -592,38 +734,49 @@ let aiTimer = 0;
 function updateEnemyAI(dt) {
   aiTimer -= dt;
   if (aiTimer > 0) return;
-  aiTimer = 1.5 + Math.random() * 2.5;
+  aiTimer = 2.0 + Math.random() * 2.0;
 
-  // Find affordable card
-  const affordable = [];
-  for (let i = 0; i < enemyHand.length; i++) {
-    const card = enemyHand[i];
-    if (!card) continue;
-    const def = UNIT_DEFS[card];
-    if (def && def.cost <= enemyMinerals) {
-      affordable.push(i);
+  const workerCount = units.filter(u => !u.dead && u.team === 'enemy' && u.worker).length;
+  const workerType = WORKER_TYPE[enemyFaction];
+  const workerDef = UNIT_DEFS[workerType];
+
+  // Phase 1: Build economy (first 30s focus on workers)
+  if (workerCount < 8 && enemyMinerals >= workerDef.cost && enemyQueue.length < 2) {
+    enemyMinerals -= workerDef.cost;
+    enemyQueue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime, isBuilding: false });
+    return;
+  }
+
+  // Phase 2: Build production buildings
+  const availBuildings = getAvailableBuildings('enemy');
+  if (availBuildings.length > 0) {
+    const btype = availBuildings[0];
+    const bdef = BUILDING_DEFS[btype];
+    if (enemyMinerals >= bdef.cost && enemyQueue.length < 2) {
+      enemyMinerals -= bdef.cost;
+      enemyQueue.push({ type: btype, timeLeft: bdef.buildTime, totalTime: bdef.buildTime, isBuilding: true });
+      return;
     }
   }
-  if (affordable.length === 0) return;
 
-  const idx = affordable[Math.floor(Math.random() * affordable.length)];
-  const card = enemyHand[idx];
-  const def = UNIT_DEFS[card];
+  // Phase 3: Build combat units
+  const availUnits = getAvailableUnits('enemy');
+  const combatUnits = availUnits.filter(u => !UNIT_DEFS[u].worker);
+  if (combatUnits.length > 0 && enemyQueue.length < 3) {
+    // Pick random affordable combat unit
+    const affordable = combatUnits.filter(u => UNIT_DEFS[u].cost <= enemyMinerals);
+    if (affordable.length > 0) {
+      const pick = affordable[Math.floor(Math.random() * affordable.length)];
+      const def = UNIT_DEFS[pick];
+      enemyMinerals -= def.cost;
+      enemyQueue.push({ type: pick, timeLeft: def.buildTime, totalTime: def.buildTime, isBuilding: false });
+    }
+  }
 
-  // Pick lane
-  const lane = Math.random() < 0.5 ? 0 : 1;
-  const x = LANE_X[lane] + (Math.random() - 0.5) * 40;
-  const y = 130 + Math.random() * 40;
-
-  enemyMinerals -= def.cost;
-  spawnUnit(card, x, y, 'enemy');
-
-  // Refill hand
-  enemyHand[idx] = enemyNextCard;
-  enemyNextCard = drawCard(enemyDeck);
-  if (!enemyNextCard) {
-    enemyDeck = initDeck(enemyFaction);
-    enemyNextCard = drawCard(enemyDeck);
+  // Keep building workers up to 12
+  if (workerCount < 12 && enemyMinerals >= workerDef.cost && enemyQueue.length < 2) {
+    enemyMinerals -= workerDef.cost;
+    enemyQueue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime, isBuilding: false });
   }
 }
 
@@ -641,15 +794,21 @@ function render() {
   ctx.save();
   ctx.scale(SCALE, SCALE);
 
-  // Background - arena
+  // Background
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, GAME_W, GAME_H);
 
-  // Arena ground
+  // Arena ground (left portion)
   drawArena();
 
   // River
   drawRiver();
+
+  // Mineral patches
+  drawMineralPatches();
+
+  // Buildings
+  drawBuildings();
 
   // Towers
   drawTowers();
@@ -681,13 +840,8 @@ function render() {
   // HUD
   drawHUD();
 
-  // Card hand
-  drawCardHand();
-
-  // Drop zone highlight
-  if (selectedCard >= 0) {
-    drawDropZone();
-  }
+  // Right panel (production UI)
+  drawProductionPanel();
 
   ctx.restore();
 }
@@ -695,16 +849,16 @@ function render() {
 function drawArena() {
   // Ground tiles
   ctx.fillStyle = '#222244';
-  ctx.fillRect(20, 20, GAME_W - 40, GAME_H - 20);
+  ctx.fillRect(20, 20, ARENA_W - 40, GAME_H - 20);
 
   // Grid lines
   ctx.strokeStyle = '#2a2a4e';
   ctx.lineWidth = 0.5;
-  for (let x = 20; x < GAME_W - 20; x += 30) {
+  for (let x = 20; x < ARENA_W - 20; x += 30) {
     ctx.beginPath(); ctx.moveTo(x, 20); ctx.lineTo(x, GAME_H - 10); ctx.stroke();
   }
   for (let y = 20; y < GAME_H; y += 30) {
-    ctx.beginPath(); ctx.moveTo(20, y); ctx.lineTo(GAME_W - 20, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(20, y); ctx.lineTo(ARENA_W - 20, y); ctx.stroke();
   }
 
   // Lane highlights
@@ -715,14 +869,13 @@ function drawArena() {
   // Side walls
   ctx.fillStyle = '#333366';
   ctx.fillRect(0, 0, 20, GAME_H);
-  ctx.fillRect(GAME_W - 20, 0, 20, GAME_H);
 }
 
 function drawRiver() {
   // Water
   const shimmer = Math.sin(gameTime * 2) * 0.1 + 0.4;
   ctx.fillStyle = `rgba(0, 100, 200, ${shimmer})`;
-  ctx.fillRect(20, RIVER_Y, GAME_W - 40, RIVER_H);
+  ctx.fillRect(20, RIVER_Y, ARENA_W - 40, RIVER_H);
 
   // Bridges
   ctx.fillStyle = '#444466';
@@ -1847,167 +2000,295 @@ function drawStar(ctx, cx, cy, r, color) {
   ctx.fill();
 }
 
+// ---- Draw Mineral Patches ----
+function drawMineralPatches() {
+  const allPatches = [...mineralPatches.player, ...mineralPatches.enemy];
+  for (const p of allPatches) {
+    if (p.minerals <= 0) {
+      // Depleted
+      ctx.fillStyle = '#333';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI*2); ctx.fill();
+      continue;
+    }
+    // Crystal cluster
+    const frac = p.minerals / p.maxMinerals;
+    const size = 6 + frac * 6;
+    // Glow
+    ctx.fillStyle = 'rgba(50,150,255,0.15)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, size + 5, 0, Math.PI*2); ctx.fill();
+    // Crystals (3 shards)
+    for (let i = 0; i < 3; i++) {
+      const angle = (i/3)*Math.PI*2 - Math.PI/2;
+      const cx = p.x + Math.cos(angle) * size * 0.4;
+      const cy = p.y + Math.sin(angle) * size * 0.4;
+      ctx.fillStyle = '#4488dd';
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.fillRect(-2, -size*0.5, 4, size);
+      ctx.restore();
+      ctx.fillStyle = '#66aaff';
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.fillRect(-1, -size*0.4, 2, size*0.6);
+      ctx.restore();
+    }
+    // Center glow
+    ctx.fillStyle = '#88ccff';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
+    // Mineral count
+    ctx.fillStyle = '#88ccff';
+    ctx.font = 'bold 7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.floor(p.minerals), p.x, p.y - size - 4);
+  }
+}
+
+// ---- Draw Buildings ----
+function drawBuildings() {
+  const allBuildings = [...playerBuildings, ...enemyBuildings];
+  for (const b of allBuildings) {
+    const bdef = BUILDING_DEFS[b.type];
+    const isPlayer = playerBuildings.includes(b);
+    const teamColor = isPlayer ? FACTION_COLORS[playerFaction].primary : FACTION_COLORS[enemyFaction].primary;
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(b.x+1, b.y+2, bdef.r+2, bdef.r*0.5+1, 0, 0, Math.PI*2); ctx.fill();
+
+    if (!b.built) {
+      // Under construction - wireframe
+      ctx.strokeStyle = teamColor;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.4 + (b.buildProgress / b.buildTime) * 0.4;
+      roundRect(ctx, b.x - bdef.r, b.y - bdef.r*0.7, bdef.r*2, bdef.r*1.4, 3, false, true);
+      // Build progress bar
+      ctx.globalAlpha = 1;
+      const barW = bdef.r * 2;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(b.x - barW/2, b.y - bdef.r - 8, barW, 4);
+      ctx.fillStyle = '#ffaa00';
+      ctx.fillRect(b.x - barW/2, b.y - bdef.r - 8, barW * (b.buildProgress / b.buildTime), 4);
+    } else {
+      // Built structure
+      const grad = ctx.createRadialGradient(b.x-2, b.y-2, 2, b.x, b.y, bdef.r);
+      grad.addColorStop(0, shadeColor(teamColor, 20));
+      grad.addColorStop(1, shadeColor(teamColor, -60));
+      ctx.fillStyle = grad;
+      roundRect(ctx, b.x - bdef.r, b.y - bdef.r*0.7, bdef.r*2, bdef.r*1.4, 3, true, false);
+      ctx.strokeStyle = teamColor;
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, b.x - bdef.r, b.y - bdef.r*0.7, bdef.r*2, bdef.r*1.4, 3, false, true);
+      // Building name
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 6px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(bdef.name, b.x, b.y + 2);
+    }
+  }
+}
+
 function drawHUD() {
-  // Top bar - enemy info
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  ctx.fillRect(0, 0, GAME_W, 20);
-  ctx.fillStyle = FACTION_COLORS[enemyFaction].primary;
-  ctx.font = 'bold 11px monospace';
+  // Top bar
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, ARENA_W, 22);
+
+  // Minerals display
+  ctx.fillStyle = '#88ccff';
+  ctx.font = 'bold 10px monospace';
   ctx.textAlign = 'left';
-  ctx.fillText(`ENEMY: ${enemyFaction.toUpperCase()}`, 6, 14);
+  // Mineral icon
+  ctx.fillStyle = '#4488dd';
+  ctx.fillRect(5, 5, 3, 10);
+  ctx.fillStyle = '#66aaff';
+  ctx.fillRect(6, 7, 2, 6);
+  ctx.fillStyle = '#88ccff';
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText(Math.floor(playerMinerals), 12, 14);
 
   // Timer
-  const remaining = Math.max(0, 180 - gameTime);
+  const remaining = Math.max(0, 600 - gameTime);
   const min = Math.floor(remaining / 60);
   const sec = Math.floor(remaining % 60);
-  ctx.fillStyle = remaining < 30 ? '#ff4444' : '#fff';
+  ctx.fillStyle = remaining < 60 ? '#ff4444' : '#fff';
   ctx.textAlign = 'center';
-  ctx.font = 'bold 12px monospace';
-  ctx.fillText(`${min}:${sec < 10 ? '0' : ''}${sec}`, GAME_W / 2, 14);
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText(`${min}:${sec < 10 ? '0' : ''}${sec}`, ARENA_W / 2, 14);
 
-  // Player faction
-  ctx.fillStyle = FACTION_COLORS[playerFaction].primary;
+  // Enemy label
+  ctx.fillStyle = FACTION_COLORS[enemyFaction].primary;
   ctx.textAlign = 'right';
-  ctx.font = 'bold 11px monospace';
-  ctx.fillText(playerFaction.toUpperCase(), GAME_W - 6, 14);
-}
+  ctx.font = 'bold 9px monospace';
+  ctx.fillText('vs ' + enemyFaction.toUpperCase(), ARENA_W - 4, 14);
 
-// ---- Card Hand ----
-const CARD_H = 90;
-const CARD_W = 68;
-const CARD_Y = GAME_H - CARD_H - 10;
+  // Worker count
+  const workerCount = units.filter(u => !u.dead && u.team === 'player' && u.worker).length;
+  ctx.fillStyle = '#aaa';
+  ctx.textAlign = 'left';
+  ctx.font = '9px monospace';
+  ctx.fillText(`Workers: ${workerCount}`, 5, GAME_H - 4);
 
-function drawCardHand() {
-  // Card tray background
-  ctx.fillStyle = 'rgba(0,0,10,0.85)';
-  ctx.fillRect(0, CARD_Y - 30, GAME_W, CARD_H + 45);
-
-  // Mineral bar
-  const barY = CARD_Y - 24;
-  ctx.fillStyle = '#0a0a20';
-  ctx.fillRect(10, barY, GAME_W - 20, 16);
-  const frac = playerMinerals / MAX_MINERALS;
-  const mColor = playerFaction === 'protoss' ? '#ffcc00' : playerFaction === 'zerg' ? '#ff4444' : '#4488ff';
-  ctx.fillStyle = mColor;
-  ctx.fillRect(10, barY, (GAME_W - 20) * frac, 16);
-  ctx.strokeStyle = '#445';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(10, barY, GAME_W - 20, 16);
-
-  // Mineral text
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 11px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(`MINERALS: ${Math.floor(playerMinerals)} / ${MAX_MINERALS}`, GAME_W / 2, barY + 12);
-
-  // Cards
-  const totalW = 4 * CARD_W + 3 * 8;
-  const startX = (GAME_W - totalW) / 2;
-
-  for (let i = 0; i < 4; i++) {
-    const card = playerHand[i];
-    if (!card) continue;
-    const def = UNIT_DEFS[card];
-    const cx = startX + i * (CARD_W + 8);
-    const cy = CARD_Y;
-    const affordable = def.cost <= playerMinerals;
-    const selected = selectedCard === i;
-
-    // Card bg
-    const cColor = FACTION_COLORS[def.faction];
-    if (selected) {
-      ctx.fillStyle = cColor.primary;
-      ctx.shadowColor = cColor.primary;
-      ctx.shadowBlur = 12;
-    } else if (affordable) {
-      ctx.fillStyle = cColor.dark;
-    } else {
-      ctx.fillStyle = '#1a1a1a';
-    }
-    roundRect(ctx, cx, cy, CARD_W, CARD_H, 8, true, false);
-    ctx.shadowBlur = 0;
-
-    // Border
-    ctx.strokeStyle = selected ? '#fff' : (affordable ? cColor.primary : '#333');
-    ctx.lineWidth = selected ? 2 : 1;
-    roundRect(ctx, cx, cy, CARD_W, CARD_H, 8, false, true);
-
-    // Unit preview (SC2 drawing)
-    const unitColor = affordable ? def.color : '#555';
-    ctx.save();
-    if (!affordable) ctx.globalAlpha = 0.4;
-    // Clip to circle area for clean look
-    ctx.beginPath();
-    ctx.arc(cx + CARD_W / 2, cy + 30, 15, 0, Math.PI * 2);
-    ctx.clip();
-    // Draw SC2 unit on card
-    const cardUnitType = Object.keys(UNIT_DEFS).find(k => UNIT_DEFS[k] === def);
-    if (cardUnitType) {
-      drawSC2Unit(cardUnitType, cx + CARD_W / 2, cy + 30, def.r * 0.9, -1, unitColor, 'player', gameTime * 3);
-    }
-    ctx.restore();
-    // Circle border
-    ctx.strokeStyle = affordable ? '#fff' : '#444';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(cx + CARD_W / 2, cy + 30, 15, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Count
-    if (def.count > 1) {
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 9px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`x${def.count}`, cx + CARD_W / 2, cy + 34);
-    }
-
-    // Name
-    ctx.fillStyle = affordable ? '#fff' : '#666';
-    ctx.font = 'bold 9px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(def.name, cx + CARD_W / 2, cy + 56);
-
-    // Cost
-    ctx.fillStyle = affordable ? '#88ccff' : '#444';
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText(def.cost, cx + CARD_W / 2, cy + 74);
-
-    // Stat line
-    ctx.fillStyle = affordable ? '#888' : '#444';
+  // Production queue indicator on arena
+  if (playerQueue.length > 0) {
+    const q = playerQueue[0];
+    const frac = 1 - q.timeLeft / q.totalTime;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(5, GAME_H - 16, 80, 10);
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(5, GAME_H - 16, 80 * frac, 10);
+    ctx.fillStyle = '#fff';
     ctx.font = '7px monospace';
-    ctx.fillText(`${def.hp}hp ${def.dmg}dmg`, cx + CARD_W / 2, cy + 85);
-  }
-
-  // Next card preview
-  if (nextCard) {
-    const def = UNIT_DEFS[nextCard];
-    ctx.fillStyle = '#333';
-    ctx.font = '8px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText('NEXT:', GAME_W - 15, CARD_Y + 12);
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(GAME_W - 15, CARD_Y + 26, 9, 0, Math.PI * 2);
-    ctx.clip();
-    drawSC2Unit(nextCard, GAME_W - 15, CARD_Y + 26, def.r * 0.7, -1, def.color, 'player', gameTime * 3);
-    ctx.restore();
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(GAME_W - 15, CARD_Y + 26, 9, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.textAlign = 'left';
+    const qname = q.isBuilding ? BUILDING_DEFS[q.type].name : UNIT_DEFS[q.type].name;
+    ctx.fillText(qname, 7, GAME_H - 8);
   }
 }
 
-function drawDropZone() {
-  // Highlight valid drop area (player side)
-  ctx.fillStyle = 'rgba(0, 200, 255, 0.08)';
-  ctx.fillRect(20, RIVER_Y + RIVER_H, GAME_W - 40, CARD_Y - 30 - RIVER_Y - RIVER_H);
-  ctx.strokeStyle = 'rgba(0, 200, 255, 0.3)';
+// ---- Right Side Production Panel ----
+const BTN_H = 36;
+const BTN_W = PANEL_W - 8;
+
+function drawProductionPanel() {
+  const px = ARENA_W; // panel x start
+  // Panel background
+  ctx.fillStyle = 'rgba(5,5,20,0.92)';
+  ctx.fillRect(px, 0, PANEL_W, GAME_H);
+  ctx.strokeStyle = '#334';
   ctx.lineWidth = 1;
-  ctx.setLineDash([5, 5]);
-  ctx.strokeRect(20, RIVER_Y + RIVER_H, GAME_W - 40, CARD_Y - 30 - RIVER_Y - RIVER_H);
-  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, GAME_H); ctx.stroke();
+
+  const fc = FACTION_COLORS[playerFaction];
+
+  // Header
+  ctx.fillStyle = fc.primary;
+  ctx.font = 'bold 8px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(playerFaction.toUpperCase(), px + PANEL_W/2, 12);
+
+  // Mineral display in panel
+  ctx.fillStyle = '#88ccff';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(Math.floor(playerMinerals), px + PANEL_W/2, 24);
+
+  let y = 32;
+
+  // Queue display
+  if (playerQueue.length > 0) {
+    ctx.fillStyle = 'rgba(255,170,0,0.15)';
+    ctx.fillRect(px + 2, y, BTN_W + 4, 18);
+    const q = playerQueue[0];
+    const frac = 1 - q.timeLeft / q.totalTime;
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(px + 3, y + 12, (BTN_W + 2) * frac, 4);
+    ctx.fillStyle = '#ffcc44';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'center';
+    const qname = q.isBuilding ? BUILDING_DEFS[q.type].name : UNIT_DEFS[q.type].name;
+    ctx.fillText(`Building: ${qname}`, px + PANEL_W/2, y + 10);
+    y += 20;
+    // Show queue count
+    if (playerQueue.length > 1) {
+      ctx.fillStyle = '#888';
+      ctx.font = '7px monospace';
+      ctx.fillText(`+${playerQueue.length-1} queued`, px + PANEL_W/2, y + 6);
+      y += 10;
+    }
+  }
+
+  y += 4;
+
+  // Section: Buildings
+  const availBuildings = getAvailableBuildings('player');
+  if (availBuildings.length > 0) {
+    ctx.fillStyle = '#666';
+    ctx.font = 'bold 7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('BUILDINGS', px + PANEL_W/2, y + 6);
+    y += 12;
+    for (const btype of availBuildings) {
+      const bdef = BUILDING_DEFS[btype];
+      const affordable = bdef.cost <= playerMinerals;
+      drawPanelButton(px + 4, y, btype, bdef.name, bdef.cost, affordable, selectedUnit === btype, true);
+      y += BTN_H + 3;
+    }
+  }
+
+  // Section: Units
+  const availUnits = getAvailableUnits('player');
+  ctx.fillStyle = '#666';
+  ctx.font = 'bold 7px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('UNITS', px + PANEL_W/2, y + 6);
+  y += 12;
+
+  for (const utype of availUnits) {
+    if (y > GAME_H - 10) break; // don't draw off screen
+    const def = UNIT_DEFS[utype];
+    const affordable = def.cost <= playerMinerals;
+    drawPanelButton(px + 4, y, utype, def.name, def.cost, affordable, selectedUnit === utype, false);
+    y += BTN_H + 3;
+  }
+}
+
+function drawPanelButton(bx, by, type, name, cost, affordable, selected, isBuilding) {
+  // Button background
+  const fc = FACTION_COLORS[playerFaction];
+  if (selected) {
+    ctx.fillStyle = fc.primary;
+    ctx.shadowColor = fc.primary;
+    ctx.shadowBlur = 6;
+  } else if (affordable) {
+    ctx.fillStyle = shadeColor(fc.dark, -10);
+  } else {
+    ctx.fillStyle = '#111';
+  }
+  roundRect(ctx, bx, by, BTN_W, BTN_H, 4, true, false);
+  ctx.shadowBlur = 0;
+
+  // Border
+  ctx.strokeStyle = selected ? '#fff' : (affordable ? fc.primary : '#333');
+  ctx.lineWidth = selected ? 1.5 : 0.5;
+  roundRect(ctx, bx, by, BTN_W, BTN_H, 4, false, true);
+
+  // Unit/building preview
+  if (!isBuilding) {
+    const def = UNIT_DEFS[type];
+    const iconX = bx + 16;
+    const iconY = by + BTN_H/2;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(iconX, iconY, 11, 0, Math.PI*2); ctx.clip();
+    const col = affordable ? def.color : '#555';
+    drawSC2Unit(type, iconX, iconY, Math.min(def.r, 8), -1, col, 'player', gameTime*3);
+    ctx.restore();
+  } else {
+    // Building icon (simple rect)
+    const iconX = bx + 16;
+    const iconY = by + BTN_H/2;
+    ctx.fillStyle = affordable ? fc.primary : '#555';
+    roundRect(ctx, iconX - 8, iconY - 6, 16, 12, 2, true, false);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 5px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('BLD', iconX, iconY + 2);
+  }
+
+  // Name
+  ctx.fillStyle = affordable ? '#fff' : '#555';
+  ctx.font = 'bold 7px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(name, bx + 30, by + 14);
+
+  // Cost
+  ctx.fillStyle = affordable ? '#88ccff' : '#444';
+  ctx.font = 'bold 8px monospace';
+  ctx.fillText(cost, bx + 30, by + 26);
+
+  // Build time
+  const btime = isBuilding ? BUILDING_DEFS[type].buildTime : UNIT_DEFS[type].buildTime;
+  ctx.fillStyle = affordable ? '#888' : '#444';
+  ctx.font = '6px monospace';
+  ctx.fillText(`${btime}s`, bx + 55, by + 26);
 }
 
 function roundRect(ctx, x, y, w, h, r, fill, stroke) {
@@ -2023,9 +2304,6 @@ function roundRect(ctx, x, y, w, h, r, fill, stroke) {
 }
 
 // ---- Touch / Input ----
-let touchStartY = 0;
-let dragUnit = false;
-
 function gameToCanvas(tx, ty) {
   const rect = canvas.getBoundingClientRect();
   const cx = (tx - rect.left) / SCALE;
@@ -2033,85 +2311,80 @@ function gameToCanvas(tx, ty) {
   return { x: cx, y: cy };
 }
 
+// Get the list of panel buttons for hit testing
+function getPanelButtons() {
+  const px = ARENA_W;
+  const buttons = [];
+  let y = 32;
+
+  // Skip queue display
+  if (playerQueue.length > 0) {
+    y += 20;
+    if (playerQueue.length > 1) y += 10;
+  }
+  y += 4;
+
+  // Buildings
+  const availBuildings = getAvailableBuildings('player');
+  if (availBuildings.length > 0) {
+    y += 12;
+    for (const btype of availBuildings) {
+      buttons.push({ type: btype, x: px + 4, y, isBuilding: true });
+      y += BTN_H + 3;
+    }
+  }
+
+  // Units
+  y += 12;
+  const availUnits = getAvailableUnits('player');
+  for (const utype of availUnits) {
+    if (y > GAME_H - 10) break;
+    buttons.push({ type: utype, x: px + 4, y, isBuilding: false });
+    y += BTN_H + 3;
+  }
+  return buttons;
+}
+
+function handleInput(x, y) {
+  if (!gameRunning) return;
+
+  // Check panel buttons
+  const buttons = getPanelButtons();
+  for (const btn of buttons) {
+    if (x >= btn.x && x <= btn.x + BTN_W && y >= btn.y && y <= btn.y + BTN_H) {
+      if (btn.isBuilding) {
+        const bdef = BUILDING_DEFS[btn.type];
+        if (bdef.cost <= playerMinerals && playerQueue.length < 5) {
+          playerMinerals -= bdef.cost;
+          playerQueue.push({ type: btn.type, timeLeft: bdef.buildTime, totalTime: bdef.buildTime, isBuilding: true });
+        }
+      } else {
+        const def = UNIT_DEFS[btn.type];
+        if (def.cost <= playerMinerals && playerQueue.length < 5) {
+          playerMinerals -= def.cost;
+          playerQueue.push({ type: btn.type, timeLeft: def.buildTime, totalTime: def.buildTime, isBuilding: false });
+        }
+      }
+      return;
+    }
+  }
+}
+
 canvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
   if (!gameRunning) return;
   const touch = e.touches[0];
   const { x, y } = gameToCanvas(touch.clientX, touch.clientY);
-
-  // Check if tapping a card
-  const totalW = 4 * CARD_W + 3 * 8;
-  const startX = (GAME_W - totalW) / 2;
-  for (let i = 0; i < 4; i++) {
-    const cx = startX + i * (CARD_W + 8);
-    if (x >= cx && x <= cx + CARD_W && y >= CARD_Y && y <= CARD_Y + CARD_H) {
-      const card = playerHand[i];
-      if (!card) return;
-      const def = UNIT_DEFS[card];
-      if (def.cost <= playerMinerals) {
-        selectedCard = selectedCard === i ? -1 : i;
-      }
-      return;
-    }
-  }
-
-  // If a card is selected and tapping the arena
-  if (selectedCard >= 0) {
-    // Only allow placement on player side (below river)
-    if (y > RIVER_Y + RIVER_H && y < CARD_Y - 35) {
-      playCard(selectedCard, x, y);
-    }
-    selectedCard = -1;
-  }
+  handleInput(x, y);
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
 
-// Mouse support for testing
 canvas.addEventListener('mousedown', (e) => {
   if (!gameRunning) return;
   const { x, y } = gameToCanvas(e.clientX, e.clientY);
-
-  const totalW = 4 * CARD_W + 3 * 8;
-  const startX = (GAME_W - totalW) / 2;
-  for (let i = 0; i < 4; i++) {
-    const cx = startX + i * (CARD_W + 8);
-    if (x >= cx && x <= cx + CARD_W && y >= CARD_Y && y <= CARD_Y + CARD_H) {
-      const card = playerHand[i];
-      if (!card) return;
-      const def = UNIT_DEFS[card];
-      if (def.cost <= playerMinerals) {
-        selectedCard = selectedCard === i ? -1 : i;
-      }
-      return;
-    }
-  }
-
-  if (selectedCard >= 0) {
-    if (y > RIVER_Y + RIVER_H && y < CARD_Y - 35) {
-      playCard(selectedCard, x, y);
-    }
-    selectedCard = -1;
-  }
+  handleInput(x, y);
 });
-
-function playCard(idx, x, y) {
-  const card = playerHand[idx];
-  if (!card) return;
-  const def = UNIT_DEFS[card];
-  if (def.cost > playerMinerals) return;
-
-  playerMinerals -= def.cost;
-  spawnUnit(card, x, y, 'player');
-
-  // Refill hand
-  playerHand[idx] = nextCard;
-  nextCard = drawCard(playerDeck);
-  if (!nextCard) {
-    playerDeck = initDeck(playerFaction);
-    nextCard = drawCard(playerDeck);
-  }
-}
 
 // ---- Game Loop ----
 let lastTime = 0;
@@ -2127,6 +2400,10 @@ function gameLoop(timestamp) {
 
   requestAnimationFrame(gameLoop);
 }
+
+// Initialize defaults for initial render
+mineralPatches = makeMineralPatches();
+towers = makeTowers();
 
 // Initial render
 render();
