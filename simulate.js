@@ -17,7 +17,7 @@ const TOWER_R = 22;
 const BASE_R = 28;
 const MINE_TIME = 1.5;
 const CARRY_AMOUNT = 5;
-const GAS_INCOME_RATE = 8;
+const GAS_PER_WORKER_PER_SEC = 0.63;
 
 const FACTIONS = ['terran', 'protoss', 'zerg'];
 const FACTION_COLORS = {
@@ -29,9 +29,9 @@ const FACTION_COLORS = {
 // ---- Building Definitions ----
 const BUILDING_DEFS = {
   _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:10 },
-  commandcenter: { faction:'terran', cost:400, buildTime:15, name:'CC', unlocks:['scv'], r:20, supplyCap:10, isExpansion:true },
-  nexus:         { faction:'protoss', cost:400, buildTime:15, name:'Nexus', unlocks:['probe'], r:20, supplyCap:10, isExpansion:true },
-  hatchery:      { faction:'zerg', cost:400, buildTime:15, name:'Hatchery', unlocks:['drone'], r:20, supplyCap:10, isExpansion:true },
+  commandcenter: { faction:'terran', cost:400, buildTime:15, name:'CC', unlocks:['scv'], r:20, supplyCap:11, isExpansion:true },
+  nexus:         { faction:'protoss', cost:400, buildTime:15, name:'Nexus', unlocks:['probe'], r:20, supplyCap:11, isExpansion:true },
+  hatchery:      { faction:'zerg', cost:300, buildTime:15, name:'Hatchery', unlocks:['drone'], r:20, supplyCap:11, isExpansion:true },
   supplydepot: { faction:'terran', cost:100, buildTime:5, name:'Depot', unlocks:[], r:14, supplyCap:10 },
   pylon:       { faction:'protoss', cost:100, buildTime:5, name:'Pylon', unlocks:[], r:14, supplyCap:10 },
   overlord:    { faction:'zerg', cost:100, buildTime:5, name:'Overlord', unlocks:[], r:14, supplyCap:10 },
@@ -44,9 +44,9 @@ const BUILDING_DEFS = {
   gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','sentry'], r:18 },
   robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robo Bay', unlocks:['immortal','hightemplar'], requires:'gateway', r:18 },
   fleetbeacon: { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Fleet Beacon', unlocks:['phoenix','voidray','carrier'], requires:'robo', r:18 },
-  pool:      { faction:'zerg', cost:150, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','baneling'], r:18 },
-  den:       { faction:'zerg', cost:200, buildTime:12, name:'Hydra Den', unlocks:['hydralisk','ultralisk'], requires:'pool', r:18 },
-  spire:     { faction:'zerg', cost:150, gasCost:100, buildTime:10, name:'Spire', unlocks:['mutalisk','corruptor','broodlord'], requires:'den', r:18 },
+  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','baneling'], r:18 },
+  den:       { faction:'zerg', cost:100, gasCost:100, buildTime:12, name:'Hydra Den', unlocks:['hydralisk','ultralisk'], requires:'pool', r:18 },
+  spire:     { faction:'zerg', cost:200, gasCost:200, buildTime:10, name:'Spire', unlocks:['mutalisk','corruptor','broodlord'], requires:'den', r:18 },
 };
 
 const FACTION_SUPPLY = { terran:'supplydepot', protoss:'pylon', zerg:'overlord' };
@@ -60,33 +60,33 @@ const FACTION_BUILDINGS = {
 
 // ---- Unit Definitions ----
 const UNIT_DEFS = {
-  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:210, dmg:32, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  name:'Marine', buildTime:3 },
+  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:195, dmg:31, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  name:'Marine', buildTime:3 },
   marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:450, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, name:'Marauder', buildTime:4 },
-  medic:        { faction:'terran', cost:75,  gasCost:25,  supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  name:'Medic', healer:true, healAmt:40, buildTime:3 },
-  siegetank:    { faction:'terran', cost:200, gasCost:100, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, name:'Siege Tank', splash:30, buildTime:6 },
-  ghost:        { faction:'terran', cost:175, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  name:'Ghost', buildTime:5 },
+  medic:        { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  name:'Medic', healer:true, healAmt:40, buildTime:3 },
+  siegetank:    { faction:'terran', cost:150, gasCost:125, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, name:'Siege Tank', splash:30, buildTime:6 },
+  ghost:        { faction:'terran', cost:150, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  name:'Ghost', buildTime:5 },
   scv:          { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  name:'SCV', worker:true, mineRate:0.3, buildTime:2 },
   viking:       { faction:'terran', cost:150, gasCost:75,  supply:2, hp:280, dmg:40, speed:1.3, range:120, atkSpeed:0.9, count:1, r:10, name:'Viking', buildTime:5, isAir:true },
   medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, name:'Medivac', healer:true, healAmt:30, buildTime:5, isAir:true },
   battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, name:'Battlecruiser', splash:20, buildTime:10, isAir:true },
-  zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:420, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, name:'Zealot', buildTime:3 },
-  stalker:      { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  name:'Stalker', buildTime:4 },
-  sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  name:'Sentry', shield:true, shieldAmt:100, buildTime:3 },
-  hightemplar:  { faction:'protoss', cost:200, gasCost:150, supply:3, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  name:'High Templar', splash:50, buildTime:6 },
-  immortal:     { faction:'protoss', cost:175, gasCost:100, supply:3, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, name:'Immortal', buildTime:5 },
+  zealot:       { faction:'protoss', cost:100, gasCost:0,   supply:2, hp:530, dmg:56, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, name:'Zealot', buildTime:3 },
+  stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:390, dmg:53, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  name:'Stalker', buildTime:4 },
+  sentry:       { faction:'protoss', cost:50,  gasCost:100, supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  name:'Sentry', shield:true, shieldAmt:140, buildTime:3 },
+  hightemplar:  { faction:'protoss', cost:50,  gasCost:150, supply:2, hp:280, dmg:180,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  name:'High Templar', splash:55, buildTime:6 },
+  immortal:     { faction:'protoss', cost:275, gasCost:100, supply:4, hp:650, dmg:85, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, name:'Immortal', buildTime:5 },
   probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
   phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:250, dmg:35, speed:1.6, range:110, atkSpeed:0.8, count:1, r:9,  name:'Phoenix', buildTime:5, isAir:true },
-  voidray:      { faction:'protoss', cost:250, gasCost:150, supply:3, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, name:'Void Ray', buildTime:7, isAir:true },
+  voidray:      { faction:'protoss', cost:250, gasCost:150, supply:4, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, name:'Void Ray', buildTime:7, isAir:true },
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, name:'Carrier', buildTime:10, isAir:true },
-  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:170, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  name:'Zergling', buildTime:2 },
-  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:550, dmg:38, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, name:'Roach', buildTime:3 },
-  hydralisk:    { faction:'zerg', cost:125, gasCost:25,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  name:'Hydralisk', buildTime:4 },
-  baneling:     { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  name:'Baneling', suicide:true, splash:35, buildTime:3 },
+  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:165, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  name:'Zergling', buildTime:2 },
+  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:540, dmg:37, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, name:'Roach', buildTime:3 },
+  hydralisk:    { faction:'zerg', cost:100, gasCost:50,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  name:'Hydralisk', buildTime:4 },
+  baneling:     { faction:'zerg', cost:25,  gasCost:25,  supply:1, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:4, r:7,  name:'Baneling', suicide:true, splash:35, buildTime:3 },
   ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, name:'Ultralisk', splash:25, buildTime:8 },
   drone:        { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  name:'Drone', worker:true, mineRate:0.3, buildTime:2 },
   mutalisk:     { faction:'zerg', cost:100, gasCost:100, supply:2, hp:200, dmg:30, speed:1.8, range:90,  atkSpeed:0.7, count:1, r:9,  name:'Mutalisk', splash:15, buildTime:5, isAir:true },
   corruptor:    { faction:'zerg', cost:150, gasCost:100, supply:2, hp:350, dmg:50, speed:1.1, range:120, atkSpeed:1.0, count:1, r:11, name:'Corruptor', buildTime:5, isAir:true },
-  broodlord:    { faction:'zerg', cost:300, gasCost:250, supply:4, hp:500, dmg:60, speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, name:'Brood Lord', splash:25, buildTime:8, isAir:true },
+  broodlord:    { faction:'zerg', cost:150, gasCost:150, supply:4, hp:500, dmg:60, speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, name:'Brood Lord', splash:25, buildTime:8, isAir:true },
 };
 
 const WORKER_TYPE = { terran:'scv', protoss:'probe', zerg:'drone' };
@@ -129,26 +129,38 @@ class GameSim {
 
     this.mineralPatches = {
       player: [
-        { x: 50,  y: GAME_H - 100, minerals: 5000, maxMinerals: 5000 },
-        { x: ARENA_W/2, y: GAME_H - 95, minerals: 5000, maxMinerals: 5000 },
-        { x: ARENA_W - 50, y: GAME_H - 100, minerals: 5000, maxMinerals: 5000 },
+        { x: 35,  y: GAME_H - 110, minerals: 1800, maxMinerals: 1800 },
+        { x: 70,  y: GAME_H - 100, minerals: 1800, maxMinerals: 1800 },
+        { x: 110, y: GAME_H - 105, minerals: 1800, maxMinerals: 1800 },
+        { x: ARENA_W/2 - 20, y: GAME_H - 95, minerals: 1800, maxMinerals: 1800 },
+        { x: ARENA_W/2 + 30, y: GAME_H - 100, minerals: 1800, maxMinerals: 1800 },
+        { x: ARENA_W - 50, y: GAME_H - 105, minerals: 1800, maxMinerals: 1800 },
       ],
       enemy: [
-        { x: 50,  y: 100, minerals: 5000, maxMinerals: 5000 },
-        { x: ARENA_W/2, y: 95, minerals: 5000, maxMinerals: 5000 },
-        { x: ARENA_W - 50, y: 100, minerals: 5000, maxMinerals: 5000 },
+        { x: 35,  y: 110, minerals: 1800, maxMinerals: 1800 },
+        { x: 70,  y: 100, minerals: 1800, maxMinerals: 1800 },
+        { x: 110, y: 105, minerals: 1800, maxMinerals: 1800 },
+        { x: ARENA_W/2 - 20, y: 95, minerals: 1800, maxMinerals: 1800 },
+        { x: ARENA_W/2 + 30, y: 100, minerals: 1800, maxMinerals: 1800 },
+        { x: ARENA_W - 50, y: 105, minerals: 1800, maxMinerals: 1800 },
       ],
       expansion: [
-        { x: 60,  y: RIVER_Y - 120, minerals: 3000, maxMinerals: 3000 },
-        { x: ARENA_W - 60, y: RIVER_Y - 120, minerals: 3000, maxMinerals: 3000 },
-        { x: 60,  y: RIVER_Y + RIVER_H + 120, minerals: 3000, maxMinerals: 3000 },
-        { x: ARENA_W - 60, y: RIVER_Y + RIVER_H + 120, minerals: 3000, maxMinerals: 3000 },
+        { x: 60,  y: RIVER_Y - 120, minerals: 1500, maxMinerals: 1500 },
+        { x: ARENA_W - 60, y: RIVER_Y - 120, minerals: 1500, maxMinerals: 1500 },
+        { x: 60,  y: RIVER_Y + RIVER_H + 120, minerals: 1500, maxMinerals: 1500 },
+        { x: ARENA_W - 60, y: RIVER_Y + RIVER_H + 120, minerals: 1500, maxMinerals: 1500 },
       ]
     };
 
     this.gasGeysers = {
-      player: { x: ARENA_W - 40, y: GAME_H - 65, gas: 5000, maxGas: 5000 },
-      enemy: { x: ARENA_W - 40, y: 65, gas: 5000, maxGas: 5000 },
+      player: [
+        { x: ARENA_W - 40, y: GAME_H - 65, gas: 2250, maxGas: 2250, workers: 0 },
+        { x: ARENA_W - 70, y: GAME_H - 50, gas: 2250, maxGas: 2250, workers: 0 },
+      ],
+      enemy: [
+        { x: ARENA_W - 40, y: 65, gas: 2250, maxGas: 2250, workers: 0 },
+        { x: ARENA_W - 70, y: 50, gas: 2250, maxGas: 2250, workers: 0 },
+      ],
     };
 
     this.playerBuildings = [{ type: '_base', x: ARENA_W/2, y: GAME_H - 90, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
@@ -244,6 +256,12 @@ class GameSim {
       if (bdef.isExpansion) {
         const exists = buildings.some(b => b.type === btype);
         if (exists) continue;
+        available.push(btype);
+        continue;
+      }
+      if (bdef.gasBuilding) {
+        const gasCount = buildings.filter(b => b.type === btype).length;
+        if (gasCount >= 2) continue;
         available.push(btype);
         continue;
       }
@@ -488,13 +506,16 @@ class GameSim {
       }
     }
 
-    // Gas refinery
+    // Gas refinery (up to 2)
     const gasType = FACTION_GAS[faction];
-    const hasGas = buildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding);
-    const geyser = isPlayer ? this.gasGeysers.player : this.gasGeysers.enemy;
-    if (!hasGas && this.gameTime > 15 && minerals() >= BUILDING_DEFS[gasType].cost) {
+    const gasCount = buildings.filter(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding).length;
+    const geysers = isPlayer ? this.gasGeysers.player : this.gasGeysers.enemy;
+    if (gasCount < 2 && this.gameTime > (gasCount === 0 ? 15 : 60) && minerals() >= BUILDING_DEFS[gasType].cost) {
+      const geyser = geysers[gasCount];
       spendMinerals(BUILDING_DEFS[gasType].cost);
       buildings.push({ type: gasType, x: geyser.x, y: geyser.y, hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: BUILDING_DEFS[gasType].buildTime, queue: [] });
+      // Auto-assign 3 workers to the geyser
+      geyser.workers = 3;
       return;
     }
 
@@ -507,9 +528,10 @@ class GameSim {
 
     // Expansion base
     const expansionType = FACTION_EXPANSION[faction];
+    const expansionDef = BUILDING_DEFS[expansionType];
     const hasExpansion = buildings.some(b => b.type === expansionType);
-    if (!hasExpansion && this.gameTime > 90 && minerals() >= 400) {
-      spendMinerals(400);
+    if (!hasExpansion && this.gameTime > 90 && minerals() >= expansionDef.cost) {
+      spendMinerals(expansionDef.cost);
       buildings.push({ type: expansionType, x: ARENA_W / 2, y: isPlayer ? RIVER_Y + RIVER_H + 150 : RIVER_Y - 150, hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [] });
       return;
     }
@@ -559,18 +581,21 @@ class GameSim {
   tick(dt) {
     this.gameTime += dt;
 
-    // Gas income (depletes from geyser)
-    const playerHasRefinery = this.playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding && b.built);
-    const enemyHasRefinery = this.enemyBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding && b.built);
-    if (playerHasRefinery && this.gasGeysers.player.gas > 0) {
-      const mined = Math.min(GAS_INCOME_RATE * dt, this.gasGeysers.player.gas);
-      this.gasGeysers.player.gas -= mined;
-      this.playerGas = Math.min(9999, this.playerGas + mined);
-    }
-    if (enemyHasRefinery && this.gasGeysers.enemy.gas > 0) {
-      const mined = Math.min(GAS_INCOME_RATE * dt, this.gasGeysers.enemy.gas);
-      this.gasGeysers.enemy.gas -= mined;
-      this.enemyGas = Math.min(9999, this.enemyGas + mined);
+    // Gas income (worker-based, depletes from geysers)
+    for (const team of ['player', 'enemy']) {
+      const geysers = this.gasGeysers[team];
+      const buildings = team === 'player' ? this.playerBuildings : this.enemyBuildings;
+      for (let i = 0; i < geysers.length; i++) {
+        const g = geysers[i];
+        if (g.workers <= 0 || g.gas <= 0) continue;
+        // Check if refinery built on this geyser
+        const gasBuildings = buildings.filter(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding && b.built);
+        if (i >= gasBuildings.length) continue;
+        const mined = Math.min(GAS_PER_WORKER_PER_SEC * g.workers * dt, g.gas);
+        g.gas -= mined;
+        if (team === 'player') this.playerGas = Math.min(9999, this.playerGas + mined);
+        else this.enemyGas = Math.min(9999, this.enemyGas + mined);
+      }
     }
 
     // Building queues
