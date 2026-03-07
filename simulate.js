@@ -17,7 +17,7 @@ const TOWER_R = 22;
 const BASE_R = 28;
 const MINE_TIME = 1.5;
 const CARRY_AMOUNT = 5;
-const GAS_INCOME_RATE = 5;
+const GAS_INCOME_RATE = 8;
 
 const FACTIONS = ['terran', 'protoss', 'zerg'];
 const FACTION_COLORS = {
@@ -29,6 +29,9 @@ const FACTION_COLORS = {
 // ---- Building Definitions ----
 const BUILDING_DEFS = {
   _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:10 },
+  commandcenter: { faction:'terran', cost:400, buildTime:15, name:'CC', unlocks:['scv'], r:20, supplyCap:10, isExpansion:true },
+  nexus:         { faction:'protoss', cost:400, buildTime:15, name:'Nexus', unlocks:['probe'], r:20, supplyCap:10, isExpansion:true },
+  hatchery:      { faction:'zerg', cost:400, buildTime:15, name:'Hatchery', unlocks:['drone'], r:20, supplyCap:10, isExpansion:true },
   supplydepot: { faction:'terran', cost:100, buildTime:5, name:'Depot', unlocks:[], r:14, supplyCap:10 },
   pylon:       { faction:'protoss', cost:100, buildTime:5, name:'Pylon', unlocks:[], r:14, supplyCap:10 },
   overlord:    { faction:'zerg', cost:100, buildTime:5, name:'Overlord', unlocks:[], r:14, supplyCap:10 },
@@ -48,15 +51,16 @@ const BUILDING_DEFS = {
 
 const FACTION_SUPPLY = { terran:'supplydepot', protoss:'pylon', zerg:'overlord' };
 const FACTION_GAS = { terran:'refinery', protoss:'assimilator', zerg:'extractor' };
+const FACTION_EXPANSION = { terran:'commandcenter', protoss:'nexus', zerg:'hatchery' };
 const FACTION_BUILDINGS = {
-  terran: ['supplydepot','refinery','barracks','factory','starport'],
-  protoss: ['pylon','assimilator','gateway','robo','fleetbeacon'],
-  zerg: ['overlord','extractor','pool','den','spire'],
+  terran: ['supplydepot','refinery','commandcenter','barracks','factory','starport'],
+  protoss: ['pylon','assimilator','nexus','gateway','robo','fleetbeacon'],
+  zerg: ['overlord','extractor','hatchery','pool','den','spire'],
 };
 
 // ---- Unit Definitions ----
 const UNIT_DEFS = {
-  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:250, dmg:35, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  name:'Marine', buildTime:3 },
+  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:210, dmg:32, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  name:'Marine', buildTime:3 },
   marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:450, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, name:'Marauder', buildTime:4 },
   medic:        { faction:'terran', cost:75,  gasCost:25,  supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  name:'Medic', healer:true, healAmt:40, buildTime:3 },
   siegetank:    { faction:'terran', cost:200, gasCost:100, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, name:'Siege Tank', splash:30, buildTime:6 },
@@ -66,7 +70,7 @@ const UNIT_DEFS = {
   medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, name:'Medivac', healer:true, healAmt:30, buildTime:5, isAir:true },
   battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, name:'Battlecruiser', splash:20, buildTime:10, isAir:true },
   zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:420, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, name:'Zealot', buildTime:3 },
-  stalker:      { faction:'protoss', cost:115, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  name:'Stalker', buildTime:4 },
+  stalker:      { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  name:'Stalker', buildTime:4 },
   sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  name:'Sentry', shield:true, shieldAmt:100, buildTime:3 },
   hightemplar:  { faction:'protoss', cost:200, gasCost:150, supply:3, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  name:'High Templar', splash:50, buildTime:6 },
   immortal:     { faction:'protoss', cost:175, gasCost:100, supply:3, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, name:'Immortal', buildTime:5 },
@@ -75,7 +79,7 @@ const UNIT_DEFS = {
   voidray:      { faction:'protoss', cost:250, gasCost:150, supply:3, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, name:'Void Ray', buildTime:7, isAir:true },
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, name:'Carrier', buildTime:10, isAir:true },
   zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:170, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  name:'Zergling', buildTime:2 },
-  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:500, dmg:35, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, name:'Roach', buildTime:3 },
+  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:550, dmg:38, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, name:'Roach', buildTime:3 },
   hydralisk:    { faction:'zerg', cost:125, gasCost:25,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  name:'Hydralisk', buildTime:4 },
   baneling:     { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  name:'Baneling', suicide:true, splash:35, buildTime:3 },
   ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, name:'Ultralisk', splash:25, buildTime:8 },
@@ -133,6 +137,12 @@ class GameSim {
         { x: 50,  y: 100, minerals: 5000, maxMinerals: 5000 },
         { x: ARENA_W/2, y: 95, minerals: 5000, maxMinerals: 5000 },
         { x: ARENA_W - 50, y: 100, minerals: 5000, maxMinerals: 5000 },
+      ],
+      expansion: [
+        { x: 60,  y: RIVER_Y - 120, minerals: 3000, maxMinerals: 3000 },
+        { x: ARENA_W - 60, y: RIVER_Y - 120, minerals: 3000, maxMinerals: 3000 },
+        { x: 60,  y: RIVER_Y + RIVER_H + 120, minerals: 3000, maxMinerals: 3000 },
+        { x: ARENA_W - 60, y: RIVER_Y + RIVER_H + 120, minerals: 3000, maxMinerals: 3000 },
       ]
     };
 
@@ -230,7 +240,13 @@ class GameSim {
     const available = [];
     for (const btype of all) {
       const bdef = BUILDING_DEFS[btype];
-      if (bdef.supplyCap) { available.push(btype); continue; }
+      if (bdef.supplyCap && !bdef.isExpansion) { available.push(btype); continue; }
+      if (bdef.isExpansion) {
+        const exists = buildings.some(b => b.type === btype);
+        if (exists) continue;
+        available.push(btype);
+        continue;
+      }
       const exists = buildings.some(b => b.type === btype);
       if (exists) continue;
       if (bdef.requires) {
@@ -244,7 +260,17 @@ class GameSim {
 
   getBuildingForUnit(unitType, buildings) {
     const def = UNIT_DEFS[unitType];
-    if (def.worker) return buildings.find(b => b.type === '_base' && b.built);
+    if (def.worker) {
+      // Workers from base or expansion
+      const base = buildings.find(b => b.type === '_base' && b.built);
+      if (base && base.queue.length < 2) return base;
+      for (const b of buildings) {
+        if (!b.built) continue;
+        const bdef = BUILDING_DEFS[b.type];
+        if (bdef && bdef.isExpansion && bdef.unlocks && bdef.unlocks.includes(unitType)) return b;
+      }
+      return base;
+    }
     for (const b of buildings) {
       if (!b.built) continue;
       const bdef = BUILDING_DEFS[b.type];
@@ -254,7 +280,8 @@ class GameSim {
   }
 
   findNearestPatch(unit) {
-    const patches = unit.team === 'player' ? this.mineralPatches.player : this.mineralPatches.enemy;
+    const teamPatches = unit.team === 'player' ? this.mineralPatches.player : this.mineralPatches.enemy;
+    const patches = [...teamPatches, ...(this.mineralPatches.expansion || [])];
     let best = null, bestD = Infinity;
     for (const p of patches) {
       if (p.minerals <= 0) continue;
@@ -478,9 +505,18 @@ class GameSim {
       return;
     }
 
+    // Expansion base
+    const expansionType = FACTION_EXPANSION[faction];
+    const hasExpansion = buildings.some(b => b.type === expansionType);
+    if (!hasExpansion && this.gameTime > 90 && minerals() >= 400) {
+      spendMinerals(400);
+      buildings.push({ type: expansionType, x: ARENA_W / 2, y: isPlayer ? RIVER_Y + RIVER_H + 150 : RIVER_Y - 150, hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [] });
+      return;
+    }
+
     // Production buildings
     const availBuildings = this.getAvailableBuildings(team);
-    const prodBuildings = availBuildings.filter(b => !BUILDING_DEFS[b].supplyCap && !BUILDING_DEFS[b].gasBuilding);
+    const prodBuildings = availBuildings.filter(b => !BUILDING_DEFS[b].supplyCap && !BUILDING_DEFS[b].gasBuilding && !BUILDING_DEFS[b].isExpansion);
     if (prodBuildings.length > 0) {
       const btype = prodBuildings[0];
       const bdef = BUILDING_DEFS[btype];

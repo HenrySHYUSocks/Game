@@ -199,7 +199,7 @@ const CARRY_AMOUNT = 5;
 // ---- Gas System ----
 let playerGas = 0;
 let enemyGas = 0;
-const GAS_INCOME_RATE = 5; // per second when refinery built
+const GAS_INCOME_RATE = 8; // per second when refinery built
 
 // ---- Supply System ----
 let playerSupply = 0;
@@ -209,6 +209,56 @@ let enemySupplyMax = 10;
 
 // ---- Force Fields ----
 let forceFields = [];
+
+// ---- Map Obstacles & Terrain ----
+// obstacles are rectangles or circles that block ground unit movement
+let obstacles = [];
+
+function makeObstacles() {
+  return [
+    // Rocky outcrops near river - create chokepoints
+    { type: 'rock', x: 40, y: RIVER_Y - 60, w: 40, h: 25, name: 'Rocks' },
+    { type: 'rock', x: ARENA_W - 80, y: RIVER_Y - 60, w: 40, h: 25, name: 'Rocks' },
+    { type: 'rock', x: 40, y: RIVER_Y + RIVER_H + 35, w: 40, h: 25, name: 'Rocks' },
+    { type: 'rock', x: ARENA_W - 80, y: RIVER_Y + RIVER_H + 35, w: 40, h: 25, name: 'Rocks' },
+    // Mid-field cover positions
+    { type: 'rock', x: ARENA_W/2 - 20, y: RIVER_Y - 150, w: 35, h: 20, name: 'Ridge' },
+    { type: 'rock', x: ARENA_W/2 - 20, y: RIVER_Y + RIVER_H + 130, w: 35, h: 20, name: 'Ridge' },
+    // Side cliffs near bases creating natural chokes
+    { type: 'rock', x: 25, y: GAME_H - 400, w: 30, h: 35, name: 'Cliff' },
+    { type: 'rock', x: ARENA_W - 55, y: GAME_H - 400, w: 30, h: 35, name: 'Cliff' },
+    { type: 'rock', x: 25, y: 400, w: 30, h: 35, name: 'Cliff' },
+    { type: 'rock', x: ARENA_W - 55, y: 400, w: 30, h: 35, name: 'Cliff' },
+  ];
+}
+
+function pointInObstacle(px, py, obs, unitR) {
+  const r = unitR || 0;
+  return px + r > obs.x && px - r < obs.x + obs.w &&
+         py + r > obs.y && py - r < obs.y + obs.h;
+}
+
+function drawObstacles() {
+  for (const obs of obstacles) {
+    if (!isVisible(obs.y, obs.h + 20)) continue;
+    // Rocky terrain
+    ctx.fillStyle = '#3a3a55';
+    ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+    // Highlight edges
+    ctx.fillStyle = '#4a4a65';
+    ctx.fillRect(obs.x + 2, obs.y + 2, obs.w - 4, 3);
+    ctx.fillStyle = '#2a2a45';
+    ctx.fillRect(obs.x + 2, obs.y + obs.h - 4, obs.w - 4, 3);
+    // Cracks/detail
+    ctx.strokeStyle = '#555577';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(obs.x + obs.w * 0.3, obs.y + 3);
+    ctx.lineTo(obs.x + obs.w * 0.5, obs.y + obs.h * 0.6);
+    ctx.lineTo(obs.x + obs.w * 0.7, obs.y + obs.h - 3);
+    ctx.stroke();
+  }
+}
 
 // 3 mineral patches per side + 1 gas geyser per side
 function makeMineralPatches() {
@@ -222,6 +272,13 @@ function makeMineralPatches() {
       { x: 50,  y: 100, minerals: 5000, maxMinerals: 5000 },
       { x: ARENA_W/2, y: 95, minerals: 5000, maxMinerals: 5000 },
       { x: ARENA_W - 50, y: 100, minerals: 5000, maxMinerals: 5000 },
+    ],
+    // Contested expansion patches in the middle (closer to each side of river)
+    expansion: [
+      { x: 60,  y: RIVER_Y - 120, minerals: 3000, maxMinerals: 3000 },
+      { x: ARENA_W - 60, y: RIVER_Y - 120, minerals: 3000, maxMinerals: 3000 },
+      { x: 60,  y: RIVER_Y + RIVER_H + 120, minerals: 3000, maxMinerals: 3000 },
+      { x: ARENA_W - 60, y: RIVER_Y + RIVER_H + 120, minerals: 3000, maxMinerals: 3000 },
     ]
   };
 }
@@ -237,6 +294,10 @@ let gasGeysers;
 // ---- Building System ----
 const BUILDING_DEFS = {
   _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:10 },
+  // Expansion bases (second command centre)
+  commandcenter: { faction:'terran', cost:400, buildTime:15, name:'CC', unlocks:['scv'], r:20, supplyCap:10, isExpansion:true },
+  nexus:         { faction:'protoss', cost:400, buildTime:15, name:'Nexus', unlocks:['probe'], r:20, supplyCap:10, isExpansion:true },
+  hatchery:      { faction:'zerg', cost:400, buildTime:15, name:'Hatchery', unlocks:['drone'], r:20, supplyCap:10, isExpansion:true },
   // Supply buildings
   supplydepot: { faction:'terran', cost:100, buildTime:5, name:'Depot', unlocks:[], r:14, supplyCap:10 },
   pylon:       { faction:'protoss', cost:100, buildTime:5, name:'Pylon', unlocks:[], r:14, supplyCap:10 },
@@ -262,10 +323,12 @@ const BUILDING_DEFS = {
 const FACTION_SUPPLY = { terran:'supplydepot', protoss:'pylon', zerg:'overlord' };
 const FACTION_GAS = { terran:'refinery', protoss:'assimilator', zerg:'extractor' };
 
+const FACTION_EXPANSION = { terran:'commandcenter', protoss:'nexus', zerg:'hatchery' };
+
 const FACTION_BUILDINGS = {
-  terran: ['supplydepot','refinery','barracks','factory','starport'],
-  protoss: ['pylon','assimilator','gateway','robo','fleetbeacon'],
-  zerg: ['overlord','extractor','pool','den','spire'],
+  terran: ['supplydepot','refinery','commandcenter','barracks','factory','starport'],
+  protoss: ['pylon','assimilator','nexus','gateway','robo','fleetbeacon'],
+  zerg: ['overlord','extractor','hatchery','pool','den','spire'],
 };
 
 let playerBuildings = []; // { type, x, y, hp, maxHp, built, buildProgress, buildTime }
@@ -274,7 +337,7 @@ let enemyBuildings = [];
 // ---- Unit Definitions ----
 const UNIT_DEFS = {
   // TERRAN
-  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:250, dmg:35, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine', buildTime:3 },
+  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:210, dmg:32, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine', buildTime:3 },
   marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:450, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, color:'#336699', name:'Marauder', buildTime:4 },
   medic:        { faction:'terran', cost:75,  gasCost:25,  supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:3 },
   siegetank:    { faction:'terran', cost:200, gasCost:100, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:6 },
@@ -285,7 +348,7 @@ const UNIT_DEFS = {
   battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, color:'#3366aa', name:'Battlecruiser', splash:20, buildTime:10, isAir:true },
   // PROTOSS
   zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:420, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
-  stalker:      { faction:'protoss', cost:115, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
+  stalker:      { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
   sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:100, buildTime:3 },
   hightemplar:  { faction:'protoss', cost:200, gasCost:150, supply:3, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:50, buildTime:6 },
   immortal:     { faction:'protoss', cost:175, gasCost:100, supply:3, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:5 },
@@ -295,7 +358,7 @@ const UNIT_DEFS = {
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:10, isAir:true },
   // ZERG
   zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:170, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
-  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:500, dmg:35, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
+  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:550, dmg:38, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
   hydralisk:    { faction:'zerg', cost:125, gasCost:25,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:4 },
   baneling:     { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:3 },
   ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25, buildTime:8 },
@@ -309,7 +372,8 @@ const UNIT_DEFS = {
 const WORKER_TYPE = { terran:'scv', protoss:'probe', zerg:'drone' };
 
 // ---- Rally Point System ----
-let playerRallyY = null; // null = hold at base, set by clicking map
+let playerRallyX = null; // X+Y coordinates, null = hold at base
+let playerRallyY = null;
 let enemyStance = 'attack';
 
 // ---- Units ----
@@ -341,7 +405,14 @@ function getAvailableBuildings(team) {
   for (const btype of all) {
     const bdef = BUILDING_DEFS[btype];
     // Supply buildings can be built multiple times
-    if (bdef.supplyCap) {
+    if (bdef.supplyCap && !bdef.isExpansion) {
+      available.push(btype);
+      continue;
+    }
+    // Expansion bases: only one allowed
+    if (bdef.isExpansion) {
+      const exists = buildings.some(b => b.type === btype);
+      if (exists) continue;
       available.push(btype);
       continue;
     }
@@ -443,6 +514,7 @@ function startGame(faction) {
   towers = makeTowers();
   mineralPatches = makeMineralPatches();
   gasGeysers = makeGasGeysers();
+  obstacles = makeObstacles();
   units = [];
   particles = [];
   projectiles = [];
@@ -459,7 +531,8 @@ function startGame(faction) {
   enemySupply = 0;
   enemySupplyMax = 10;
   gameTime = 0;
-  playerRallyY = GAME_H - 250; // start holding near base
+  playerRallyX = ARENA_W / 2; // start holding near base
+  playerRallyY = GAME_H - 250;
   enemyStance = 'attack';
   aiTimer = 0;
   cameraY = GAME_H - VIEWPORT_H; // Start viewing player base
@@ -484,7 +557,8 @@ function dist(a, b) {
 }
 
 function findNearestPatch(unit) {
-  const patches = unit.team === 'player' ? mineralPatches.player : mineralPatches.enemy;
+  const teamPatches = unit.team === 'player' ? mineralPatches.player : mineralPatches.enemy;
+  const patches = [...teamPatches, ...(mineralPatches.expansion || [])];
   let best = null, bestD = Infinity;
   for (const p of patches) {
     if (p.minerals <= 0) continue;
@@ -497,7 +571,9 @@ function findNearestPatch(unit) {
 function findTarget(unit) {
   const isPlayer = unit.team === 'player';
   // Player units near rally point use limited engagement range; enemy AI always full range
-  const nearRally = isPlayer && playerRallyY !== null && Math.abs(unit.y - playerRallyY) < 80;
+  const rdx = isPlayer && playerRallyX !== null ? unit.x - playerRallyX : 0;
+  const rdy = isPlayer && playerRallyY !== null ? unit.y - playerRallyY : 0;
+  const nearRally = isPlayer && playerRallyY !== null && Math.sqrt(rdx*rdx + rdy*rdy) < 100;
   const maxRange = (!unit.worker && nearRally) ? 200 : Infinity;
   let best = null;
   let bestDist = Infinity;
@@ -533,9 +609,22 @@ function findTarget(unit) {
 }
 
 // ---- Worker Mining Logic ----
+function findNearestBase(unit) {
+  const buildings = unit.team === 'player' ? playerBuildings : enemyBuildings;
+  let bestD = Infinity, bestX = ARENA_W / 2, bestY = unit.team === 'player' ? GAME_H - 90 : 90;
+  for (const b of buildings) {
+    if (b.type !== '_base' && !BUILDING_DEFS[b.type].isExpansion) continue;
+    if (!b.built) continue;
+    const d = dist(unit, b);
+    if (d < bestD) { bestD = d; bestX = b.x; bestY = b.y; }
+  }
+  return { x: bestX, y: bestY };
+}
+
 function updateWorker(unit, dt) {
-  const baseX = ARENA_W / 2;
-  const baseY = unit.team === 'player' ? GAME_H - 90 : 90;
+  const base = findNearestBase(unit);
+  const baseX = base.x;
+  const baseY = base.y;
   const moveSpeed = unit.speed * 60;
 
   switch (unit.miningState) {
@@ -602,8 +691,15 @@ function updateWorker(unit, dt) {
 function getBuildingForUnit(unitType, buildings) {
   const def = UNIT_DEFS[unitType];
   if (def.worker) {
-    // Workers come from base
-    return buildings.find(b => b.type === '_base' && b.built);
+    // Workers from base or expansion
+    const base = buildings.find(b => b.type === '_base' && b.built);
+    if (base && base.queue.length < 2) return base;
+    for (const b of buildings) {
+      if (!b.built) continue;
+      const bdef = BUILDING_DEFS[b.type];
+      if (bdef && bdef.isExpansion && bdef.unlocks && bdef.unlocks.includes(unitType)) return b;
+    }
+    return base;
   }
   for (const b of buildings) {
     if (!b.built) continue;
@@ -865,8 +961,18 @@ function updateGame(dt) {
           if (!blocked) {
             const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
             const moveSpeed = effectiveSpeed * 50;
-            unit.x += Math.cos(angle) * moveSpeed * dt;
-            unit.y += Math.sin(angle) * moveSpeed * dt;
+            const nx = unit.x + Math.cos(angle) * moveSpeed * dt;
+            const ny = unit.y + Math.sin(angle) * moveSpeed * dt;
+            let obsBlocked = false;
+            if (!unit.isAir) {
+              for (const obs of obstacles) {
+                if (pointInObstacle(nx, ny, obs, unit.r)) { obsBlocked = true; break; }
+              }
+            }
+            if (!obsBlocked) {
+              unit.x = nx;
+              unit.y = ny;
+            }
           }
         }
         // Siege tank: unsiege when target out of range
@@ -877,13 +983,18 @@ function updateGame(dt) {
       }
     } else {
       const isPlayer = unit.team === 'player';
-      let targetY;
+      let targetX, targetY;
       if (isPlayer) {
+        targetX = playerRallyX !== null ? playerRallyX : ARENA_W / 2;
         targetY = playerRallyY !== null ? playerRallyY : GAME_H - 250;
       } else {
+        targetX = ARENA_W / 2;
         targetY = enemyStance === 'defend' ? 250 : GAME_H - 90;
       }
-      if (Math.abs(unit.y - targetY) > 5 && effectiveSpeed > 0) {
+      const dx = targetX - unit.x;
+      const dy = targetY - unit.y;
+      const dLen = Math.sqrt(dx * dx + dy * dy);
+      if (dLen > 8 && effectiveSpeed > 0) {
         // Check force field collision
         let blocked = false;
         if (!unit.isAir) {
@@ -893,8 +1004,21 @@ function updateGame(dt) {
           }
         }
         if (!blocked) {
-          const dir = targetY > unit.y ? 1 : -1;
-          unit.y += dir * effectiveSpeed * 50 * dt;
+          // Check obstacle collision for ground units
+          let canMove = true;
+          if (!unit.isAir) {
+            const nx = unit.x + (dx / dLen) * effectiveSpeed * 50 * dt;
+            const ny = unit.y + (dy / dLen) * effectiveSpeed * 50 * dt;
+            for (const obs of obstacles) {
+              if (pointInObstacle(nx, ny, obs, unit.r)) { canMove = false; break; }
+            }
+          }
+          if (canMove) {
+            unit.x += (dx / dLen) * effectiveSpeed * 50 * dt;
+            unit.y += (dy / dLen) * effectiveSpeed * 50 * dt;
+            // Clamp to arena bounds
+            unit.x = Math.max(25, Math.min(ARENA_W - 25, unit.x));
+          }
         }
       }
       // Siege tank: unsiege when no target
@@ -1066,10 +1190,22 @@ function updateEnemyAI(dt) {
     return;
   }
 
-  // Phase 2: Build production buildings (skip supply/gas — handled above)
+  // Phase 1.5: Build expansion base after some time
+  const expansionType = FACTION_EXPANSION[enemyFaction];
+  const hasExpansion = enemyBuildings.some(b => b.type === expansionType);
+  if (!hasExpansion && gameTime > 90 && enemyMinerals >= 400) {
+    enemyMinerals -= 400;
+    enemyBuildings.push({
+      type: expansionType, x: ARENA_W / 2, y: RIVER_Y - 150,
+      hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
+    });
+    return;
+  }
+
+  // Phase 2: Build production buildings (skip supply/gas/expansion — handled above)
   const availBuildings = getAvailableBuildings('enemy').filter(bt => {
     const bd = BUILDING_DEFS[bt];
-    return !bd.supplyCap && !bd.gasBuilding;
+    return !bd.supplyCap && !bd.gasBuilding && !bd.isExpansion;
   });
   if (availBuildings.length > 0) {
     const btype = availBuildings[0];
@@ -1143,6 +1279,9 @@ function render() {
   // River
   drawRiver();
 
+  // Obstacles
+  drawObstacles();
+
   // Gas geysers
   drawGasGeysers();
 
@@ -1192,28 +1331,29 @@ function render() {
   }
   ctx.globalAlpha = 1;
 
-  // Rally point indicator
+  // Rally point indicator (crosshair at X,Y)
   if (playerRallyY !== null && isVisible(playerRallyY)) {
+    const rpX = playerRallyX !== null ? playerRallyX : ARENA_W / 2;
     const rpPulse = 0.5 + 0.5 * Math.sin(gameTime * 4);
-    ctx.strokeStyle = `rgba(0, 255, 100, ${0.4 + rpPulse * 0.4})`;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 4]);
+    const alpha = 0.4 + rpPulse * 0.4;
+    ctx.strokeStyle = `rgba(0, 255, 100, ${alpha})`;
+    ctx.lineWidth = 1.5;
+    // Crosshair circle
     ctx.beginPath();
-    ctx.moveTo(10, playerRallyY);
-    ctx.lineTo(ARENA_W - 10, playerRallyY);
+    ctx.arc(rpX, playerRallyY, 12 + rpPulse * 3, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.setLineDash([]);
-    // Arrow marker
-    ctx.fillStyle = `rgba(0, 255, 100, ${0.6 + rpPulse * 0.3})`;
+    // Cross lines
     ctx.beginPath();
-    ctx.moveTo(ARENA_W / 2 - 8, playerRallyY - 6);
-    ctx.lineTo(ARENA_W / 2 + 8, playerRallyY - 6);
-    ctx.lineTo(ARENA_W / 2, playerRallyY + 4);
-    ctx.closePath();
-    ctx.fill();
+    ctx.moveTo(rpX - 18, playerRallyY); ctx.lineTo(rpX - 6, playerRallyY);
+    ctx.moveTo(rpX + 6, playerRallyY); ctx.lineTo(rpX + 18, playerRallyY);
+    ctx.moveTo(rpX, playerRallyY - 18); ctx.lineTo(rpX, playerRallyY - 6);
+    ctx.moveTo(rpX, playerRallyY + 6); ctx.lineTo(rpX, playerRallyY + 18);
+    ctx.stroke();
+    // Label
+    ctx.fillStyle = `rgba(0, 255, 100, ${0.6 + rpPulse * 0.3})`;
     ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('RALLY', ARENA_W / 2, playerRallyY - 10);
+    ctx.fillText('RALLY', rpX, playerRallyY - 20);
   }
 
   ctx.restore(); // end world-space
@@ -1227,9 +1367,21 @@ function render() {
 }
 
 function drawArena() {
-  // Ground tiles
+  // Ground - base areas are lighter, middle is darker
   ctx.fillStyle = '#222244';
   ctx.fillRect(20, 20, ARENA_W - 40, GAME_H - 30);
+
+  // Player base zone (warm tint)
+  ctx.fillStyle = 'rgba(40, 50, 80, 0.4)';
+  ctx.fillRect(20, GAME_H - 250, ARENA_W - 40, 240);
+  // Enemy base zone (cool tint)
+  ctx.fillStyle = 'rgba(80, 40, 50, 0.3)';
+  ctx.fillRect(20, 20, ARENA_W - 40, 240);
+
+  // Expansion areas (gold tint for contested territory)
+  ctx.fillStyle = 'rgba(80, 70, 30, 0.2)';
+  ctx.fillRect(20, RIVER_Y - 170, ARENA_W - 40, 100);
+  ctx.fillRect(20, RIVER_Y + RIVER_H + 70, ARENA_W - 40, 100);
 
   // Grid lines (only draw visible ones)
   ctx.strokeStyle = '#2a2a4e';
@@ -1248,9 +1400,27 @@ function drawArena() {
   ctx.fillRect(LANE_X[0] - 50, 20, 100, GAME_H - 30);
   ctx.fillRect(LANE_X[1] - 50, 20, 100, GAME_H - 30);
 
-  // Side walls
+  // Side walls (thicker, more detailed)
   ctx.fillStyle = '#333366';
   ctx.fillRect(0, 0, 20, GAME_H);
+  ctx.fillRect(ARENA_W - 5, 0, 5, GAME_H);
+  // Wall edge highlight
+  ctx.fillStyle = '#444488';
+  ctx.fillRect(18, 0, 2, GAME_H);
+
+  // Expansion labels
+  if (isVisible(RIVER_Y - 130)) {
+    ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
+    ctx.font = 'bold 6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('EXPANSION', ARENA_W / 2, RIVER_Y - 125);
+  }
+  if (isVisible(RIVER_Y + RIVER_H + 130)) {
+    ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
+    ctx.font = 'bold 6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('EXPANSION', ARENA_W / 2, RIVER_Y + RIVER_H + 125);
+  }
 }
 
 function drawRiver() {
@@ -2699,7 +2869,7 @@ function drawGasGeysers() {
 
 // ---- Draw Mineral Patches ----
 function drawMineralPatches() {
-  const allPatches = [...mineralPatches.player, ...mineralPatches.enemy];
+  const allPatches = [...mineralPatches.player, ...mineralPatches.enemy, ...(mineralPatches.expansion || [])];
   for (const p of allPatches) {
     if (p.minerals <= 0) {
       // Depleted
@@ -2904,7 +3074,7 @@ function drawProductionPanel() {
     const bdef = BUILDING_DEFS[b.type];
     if (!bdef) continue;
     // Skip supply/gas buildings from unit production list (they don't produce units)
-    if (bdef.supplyCap && b.type !== '_base') continue;
+    if (bdef.supplyCap && b.type !== '_base' && !bdef.isExpansion) continue;
     if (bdef.gasBuilding) continue;
 
     if (y > -BTN_H * 4) {
@@ -3108,6 +3278,29 @@ function drawMinimap() {
   ctx.fillStyle = 'rgba(0,100,200,0.5)';
   ctx.fillRect(mmX, mmY + RIVER_Y * scaleY, mmW, 2);
 
+  // Obstacles on minimap
+  ctx.fillStyle = 'rgba(60,60,80,0.6)';
+  for (const obs of obstacles) {
+    ctx.fillRect(mmX + obs.x * scaleX, mmY + obs.y * scaleY, Math.max(2, obs.w * scaleX), Math.max(1, obs.h * scaleY));
+  }
+
+  // Expansion minerals on minimap
+  if (mineralPatches.expansion) {
+    ctx.fillStyle = '#886622';
+    for (const p of mineralPatches.expansion) {
+      if (p.minerals > 0) {
+        ctx.fillRect(mmX + p.x * scaleX - 1, mmY + p.y * scaleY - 1, 2, 2);
+      }
+    }
+  }
+
+  // Rally point on minimap
+  if (playerRallyY !== null) {
+    const rpX = playerRallyX !== null ? playerRallyX : ARENA_W / 2;
+    ctx.fillStyle = '#00ff66';
+    ctx.fillRect(mmX + rpX * scaleX - 1, mmY + playerRallyY * scaleY - 1, 3, 3);
+  }
+
   // Towers
   for (const key of ['left', 'right', 'base']) {
     if (towers.player[key].hp > 0) {
@@ -3167,7 +3360,7 @@ function getPanelButtons() {
     if (y > VIEWPORT_H + 10) break;
     const bdef = BUILDING_DEFS[b.type];
     if (!bdef) continue;
-    if (bdef.supplyCap && b.type !== '_base') continue;
+    if (bdef.supplyCap && b.type !== '_base' && !bdef.isExpansion) continue;
     if (bdef.gasBuilding) continue;
 
     y += 10;
@@ -3222,11 +3415,14 @@ function handleInput(x, y) {
         if (bdef.cost <= playerMinerals && playerGas >= gasCost) {
           playerMinerals -= bdef.cost;
           playerGas -= gasCost;
-          // Gas buildings go on geyser, others near base
           let bx, baseY;
           if (bdef.gasBuilding) {
             bx = gasGeysers.player.x;
             baseY = gasGeysers.player.y;
+          } else if (bdef.isExpansion) {
+            // Place expansion near contested minerals on player side
+            bx = ARENA_W / 2;
+            baseY = RIVER_Y + RIVER_H + 150;
           } else {
             baseY = GAME_H - 160;
             bx = 50 + playerBuildings.length * 35;
@@ -3234,7 +3430,7 @@ function handleInput(x, y) {
           playerBuildings.push({
             type: btn.type,
             x: bx, y: baseY,
-            hp: 500, maxHp: 500,
+            hp: bdef.isExpansion ? 2000 : 500, maxHp: bdef.isExpansion ? 2000 : 500,
             built: false, buildProgress: 0, buildTime: bdef.buildTime,
             queue: [],
           });
@@ -3267,9 +3463,10 @@ function handleInput(x, y) {
     return;
   }
 
-  // Click on arena = set army rally point (convert screen Y to world Y)
+  // Click on arena = set army rally point (convert screen coords to world coords)
   if (x < ARENA_W) {
     const worldY = y + cameraY;
+    playerRallyX = Math.max(25, Math.min(ARENA_W - 25, x));
     playerRallyY = Math.max(30, Math.min(GAME_H - 30, worldY));
   }
 }
