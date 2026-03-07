@@ -235,11 +235,13 @@ function makeObstacles() {
     { type: 'cliff', x: 20, y: 330, w: 90, h: 20, name: 'Ramp Wall' },
     { type: 'cliff', x: 190, y: 330, w: 120, h: 20, name: 'Ramp Wall' },
 
-    // Rocky outcrops near river - create chokepoints
-    { type: 'rock', x: 40, y: RIVER_Y - 60, w: 40, h: 25, name: 'Rocks' },
+    // Rocky outcrops near river — corridor walls for third expansion on left side
+    // Right side rocks block direct path, creating corridor on left
     { type: 'rock', x: ARENA_W - 80, y: RIVER_Y - 60, w: 40, h: 25, name: 'Rocks' },
-    { type: 'rock', x: 40, y: RIVER_Y + RIVER_H + 35, w: 40, h: 25, name: 'Rocks' },
     { type: 'rock', x: ARENA_W - 80, y: RIVER_Y + RIVER_H + 35, w: 40, h: 25, name: 'Rocks' },
+    // Corridor walls — narrow path to third expansion
+    { type: 'rock', x: 140, y: RIVER_Y - 100, w: 20, h: 60, name: 'Corridor Wall' },
+    { type: 'rock', x: 140, y: RIVER_Y + 40, w: 20, h: 60, name: 'Corridor Wall' },
     // Mid-field cover
     { type: 'rock', x: 30, y: RIVER_Y - 250, w: 30, h: 18, name: 'Ridge' },
     { type: 'rock', x: 30, y: RIVER_Y + RIVER_H + 232, w: 30, h: 18, name: 'Ridge' },
@@ -258,6 +260,13 @@ function pointInObstacle(px, py, obs, unitR) {
 }
 
 // Try to move a ground unit, sliding around obstacles if blocked
+function posBlocked(px, py, unitR) {
+  for (const obs of obstacles) {
+    if (pointInObstacle(px, py, obs, unitR)) return true;
+  }
+  return false;
+}
+
 function moveWithSlide(unit, vx, vy, dt) {
   if (unit.isAir) {
     unit.x += vx * dt;
@@ -266,28 +275,38 @@ function moveWithSlide(unit, vx, vy, dt) {
   }
   const nx = unit.x + vx * dt;
   const ny = unit.y + vy * dt;
-  let fullBlocked = false;
-  for (const obs of obstacles) {
-    if (pointInObstacle(nx, ny, obs, unit.r)) { fullBlocked = true; break; }
-  }
-  if (!fullBlocked) {
+  if (!posBlocked(nx, ny, unit.r)) {
     unit.x = nx;
     unit.y = ny;
   } else {
     // Try sliding on X axis only
-    let xOk = true;
     const sx = unit.x + vx * dt;
-    for (const obs of obstacles) {
-      if (pointInObstacle(sx, unit.y, obs, unit.r)) { xOk = false; break; }
-    }
-    if (xOk) { unit.x = sx; }
+    const xOk = !posBlocked(sx, unit.y, unit.r);
+    if (xOk) unit.x = sx;
     // Try sliding on Y axis only
-    let yOk = true;
     const sy = unit.y + vy * dt;
-    for (const obs of obstacles) {
-      if (pointInObstacle(unit.x, sy, obs, unit.r)) { yOk = false; break; }
+    const yOk = !posBlocked(unit.x, sy, unit.r);
+    if (yOk) unit.y = sy;
+    // If fully stuck, try perpendicular nudge to escape
+    if (!xOk && !yOk) {
+      const speed = Math.sqrt(vx*vx + vy*vy) * dt;
+      // Try 4 perpendicular directions to find an escape
+      const dirs = [
+        { dx: 1, dy: 0 }, { dx: -1, dy: 0 },
+        { dx: 0, dy: 1 }, { dx: 0, dy: -1 },
+        { dx: 0.7, dy: 0.7 }, { dx: -0.7, dy: 0.7 },
+        { dx: 0.7, dy: -0.7 }, { dx: -0.7, dy: -0.7 },
+      ];
+      for (const d of dirs) {
+        const tx = unit.x + d.dx * speed;
+        const ty = unit.y + d.dy * speed;
+        if (!posBlocked(tx, ty, unit.r)) {
+          unit.x = tx;
+          unit.y = ty;
+          break;
+        }
+      }
     }
-    if (yOk) { unit.y = sy; }
   }
   // Clamp to arena bounds
   unit.x = Math.max(25, Math.min(ARENA_W - 25, unit.x));
@@ -330,11 +349,17 @@ function drawObstacles() {
   }
 }
 
-// 6 mineral patches per base, 2 gas geysers per base, + expansion patches & geysers
+// 8 mineral patches per base, 2 gas geysers per base, + expansion & third patches
+// Player natural expansion at GAME_H - 500, enemy natural at 500
+// Third (contested) expansion in side corridor near river
+const PLAYER_EXP_Y = GAME_H - 500;
+const ENEMY_EXP_Y = 500;
+const THIRD_EXP_Y = RIVER_Y; // Contested middle expansion — off to one side
+const THIRD_EXP_X = 60; // Left corridor
+
 function makeMineralPatches() {
   return {
     player: [
-      // Mineral line ~80px from base center — longer SCV travel
       { x: 30,  y: GAME_H - 190, minerals: 1800, maxMinerals: 1800 },
       { x: 65,  y: GAME_H - 200, minerals: 1800, maxMinerals: 1800 },
       { x: 100, y: GAME_H - 205, minerals: 1800, maxMinerals: 1800 },
@@ -354,26 +379,37 @@ function makeMineralPatches() {
       { x: 250, y: 190, minerals: 1800, maxMinerals: 1800 },
       { x: 280, y: 195, minerals: 1800, maxMinerals: 1800 },
     ],
-    // Expansion minerals behind the main base
+    // Natural expansion — further away from main, full resources
     playerExpansion: [
-      { x: 40,  y: GAME_H - 15, minerals: 1500, maxMinerals: 1500 },
-      { x: 75,  y: GAME_H - 10, minerals: 1500, maxMinerals: 1500 },
-      { x: 110, y: GAME_H - 8, minerals: 1500, maxMinerals: 1500 },
-      { x: 150, y: GAME_H - 5, minerals: 1500, maxMinerals: 1500 },
-      { x: 190, y: GAME_H - 8, minerals: 1500, maxMinerals: 1500 },
-      { x: 225, y: GAME_H - 10, minerals: 1500, maxMinerals: 1500 },
-      { x: 260, y: GAME_H - 15, minerals: 1500, maxMinerals: 1500 },
-      { x: 290, y: GAME_H - 10, minerals: 1500, maxMinerals: 1500 },
+      { x: 30,  y: PLAYER_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
+      { x: 65,  y: PLAYER_EXP_Y - 80, minerals: 1800, maxMinerals: 1800 },
+      { x: 100, y: PLAYER_EXP_Y - 85, minerals: 1800, maxMinerals: 1800 },
+      { x: 140, y: PLAYER_EXP_Y - 88, minerals: 1800, maxMinerals: 1800 },
+      { x: 180, y: PLAYER_EXP_Y - 85, minerals: 1800, maxMinerals: 1800 },
+      { x: 215, y: PLAYER_EXP_Y - 80, minerals: 1800, maxMinerals: 1800 },
+      { x: 250, y: PLAYER_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
+      { x: 280, y: PLAYER_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
     ],
     enemyExpansion: [
-      { x: 40,  y: 15, minerals: 1500, maxMinerals: 1500 },
-      { x: 75,  y: 10, minerals: 1500, maxMinerals: 1500 },
-      { x: 110, y: 8, minerals: 1500, maxMinerals: 1500 },
-      { x: 150, y: 5, minerals: 1500, maxMinerals: 1500 },
-      { x: 190, y: 8, minerals: 1500, maxMinerals: 1500 },
-      { x: 225, y: 10, minerals: 1500, maxMinerals: 1500 },
-      { x: 260, y: 15, minerals: 1500, maxMinerals: 1500 },
-      { x: 290, y: 10, minerals: 1500, maxMinerals: 1500 },
+      { x: 30,  y: ENEMY_EXP_Y + 70, minerals: 1800, maxMinerals: 1800 },
+      { x: 65,  y: ENEMY_EXP_Y + 80, minerals: 1800, maxMinerals: 1800 },
+      { x: 100, y: ENEMY_EXP_Y + 85, minerals: 1800, maxMinerals: 1800 },
+      { x: 140, y: ENEMY_EXP_Y + 88, minerals: 1800, maxMinerals: 1800 },
+      { x: 180, y: ENEMY_EXP_Y + 85, minerals: 1800, maxMinerals: 1800 },
+      { x: 215, y: ENEMY_EXP_Y + 80, minerals: 1800, maxMinerals: 1800 },
+      { x: 250, y: ENEMY_EXP_Y + 70, minerals: 1800, maxMinerals: 1800 },
+      { x: 280, y: ENEMY_EXP_Y + 75, minerals: 1800, maxMinerals: 1800 },
+    ],
+    // Third contested expansion — side corridor near river
+    thirdExpansion: [
+      { x: THIRD_EXP_X - 25, y: THIRD_EXP_Y - 60, minerals: 1800, maxMinerals: 1800 },
+      { x: THIRD_EXP_X - 10, y: THIRD_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
+      { x: THIRD_EXP_X + 10, y: THIRD_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
+      { x: THIRD_EXP_X + 30, y: THIRD_EXP_Y - 78, minerals: 1800, maxMinerals: 1800 },
+      { x: THIRD_EXP_X + 50, y: THIRD_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
+      { x: THIRD_EXP_X + 70, y: THIRD_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
+      { x: THIRD_EXP_X + 85, y: THIRD_EXP_Y - 60, minerals: 1800, maxMinerals: 1800 },
+      { x: THIRD_EXP_X + 100, y: THIRD_EXP_Y - 65, minerals: 1800, maxMinerals: 1800 },
     ],
   };
 }
@@ -382,16 +418,22 @@ function makeGasGeysers() {
     player: [
       { x: ARENA_W - 40, y: GAME_H - 100, gas: 2250, maxGas: 2250, workers: 0 },
       { x: 40, y: GAME_H - 90, gas: 2250, maxGas: 2250, workers: 0 },
-      // Expansion geysers (behind main base)
-      { x: 50, y: GAME_H - 25, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
-      { x: ARENA_W - 50, y: GAME_H - 25, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      // Natural expansion geysers
+      { x: 50, y: PLAYER_EXP_Y - 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: ARENA_W - 50, y: PLAYER_EXP_Y - 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      // Third expansion geysers
+      { x: THIRD_EXP_X, y: THIRD_EXP_Y + 30, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
+      { x: THIRD_EXP_X + 100, y: THIRD_EXP_Y + 30, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
     ],
     enemy: [
       { x: ARENA_W - 40, y: 100, gas: 2250, maxGas: 2250, workers: 0 },
       { x: 40, y: 90, gas: 2250, maxGas: 2250, workers: 0 },
-      // Expansion geysers (behind enemy main base)
-      { x: 50, y: 25, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
-      { x: ARENA_W - 50, y: 25, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      // Natural expansion geysers
+      { x: 50, y: ENEMY_EXP_Y + 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: ARENA_W - 50, y: ENEMY_EXP_Y + 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      // Third expansion geysers
+      { x: THIRD_EXP_X, y: THIRD_EXP_Y + 30, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
+      { x: THIRD_EXP_X + 100, y: THIRD_EXP_Y + 30, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
     ],
   };
 }
@@ -401,10 +443,14 @@ let gasGeysers;
 // ---- Building System ----
 const BUILDING_DEFS = {
   _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:11 },
-  // Expansion bases (second command centre)
+  // Natural expansion (second base)
   commandcenter: { faction:'terran', cost:400, buildTime:15, name:'CC', unlocks:['scv'], r:20, supplyCap:11, isExpansion:true },
   nexus:         { faction:'protoss', cost:400, buildTime:15, name:'Nexus', unlocks:['probe'], r:20, supplyCap:11, isExpansion:true },
   hatchery:      { faction:'zerg', cost:300, buildTime:15, name:'Hatchery', unlocks:['drone'], r:20, supplyCap:11, isExpansion:true },
+  // Third expansion (contested middle) — requires natural first
+  commandcenter3: { faction:'terran', cost:400, buildTime:20, name:'CC (3rd)', unlocks:['scv'], r:20, supplyCap:11, isThirdExpansion:true },
+  nexus3:         { faction:'protoss', cost:400, buildTime:20, name:'Nexus (3rd)', unlocks:['probe'], r:20, supplyCap:11, isThirdExpansion:true },
+  hatchery3:      { faction:'zerg', cost:300, buildTime:20, name:'Hatch (3rd)', unlocks:['drone'], r:20, supplyCap:11, isThirdExpansion:true },
   // Supply buildings
   supplydepot: { faction:'terran', cost:100, buildTime:5, name:'Depot', unlocks:[], r:14, supplyCap:8 },
   pylon:       { faction:'protoss', cost:100, buildTime:5, name:'Pylon', unlocks:[], r:14, supplyCap:8 },
@@ -434,11 +480,12 @@ const FACTION_SUPPLY = { terran:'supplydepot', protoss:'pylon', zerg:'overlord' 
 const FACTION_GAS = { terran:'refinery', protoss:'assimilator', zerg:'extractor' };
 
 const FACTION_EXPANSION = { terran:'commandcenter', protoss:'nexus', zerg:'hatchery' };
+const FACTION_THIRD_EXPANSION = { terran:'commandcenter3', protoss:'nexus3', zerg:'hatchery3' };
 
 const FACTION_BUILDINGS = {
-  terran: ['supplydepot','refinery','commandcenter','bunker','barracks','factory','starport'],
-  protoss: ['pylon','assimilator','nexus','photoncannon','gateway','robo','fleetbeacon'],
-  zerg: ['overlord','extractor','hatchery','spinecrawler','pool','den','spire'],
+  terran: ['supplydepot','refinery','commandcenter','commandcenter3','bunker','barracks','factory','starport'],
+  protoss: ['pylon','assimilator','nexus','nexus3','photoncannon','gateway','robo','fleetbeacon'],
+  zerg: ['overlord','extractor','hatchery','hatchery3','spinecrawler','pool','den','spire'],
 };
 
 let playerBuildings = []; // { type, x, y, hp, maxHp, built, buildProgress, buildTime }
@@ -485,8 +532,8 @@ const UNIT_DEFS = {
 // Worker type per faction
 const WORKER_TYPE = { terran:'scv', protoss:'probe', zerg:'drone' };
 
-// ---- Building Placement Mode ----
-let placingBuilding = null; // { type, bdef } when in placement mode
+// ---- Worker Split Slider ----
+let workerSplitPct = 50; // % of workers that should be at main base (vs expansion)
 
 // ---- Rally Point System ----
 let playerRallyX = null; // X+Y coordinates, null = hold at base
@@ -533,11 +580,23 @@ function getAvailableBuildings(team) {
       available.push(btype);
       continue;
     }
-    // Gas buildings: allow up to 4 (2 base + 2 expansion)
+    // Third expansion: requires natural expansion first, only one allowed
+    if (bdef.isThirdExpansion) {
+      if (!hasExpansion(buildings === playerBuildings ? 'player' : 'enemy')) continue;
+      const exists = buildings.some(b => b.type === btype);
+      if (exists) continue;
+      // Check if third expansion slot is already taken by the other team
+      const otherBuildings = buildings === playerBuildings ? enemyBuildings : playerBuildings;
+      const otherHasThird = otherBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isThirdExpansion);
+      if (otherHasThird) continue;
+      available.push(btype);
+      continue;
+    }
+    // Gas buildings: allow up to 6 (2 base + 2 expansion + 2 third)
     if (bdef.gasBuilding) {
       const gasCount = buildings.filter(b => b.type === btype).length;
       const team = buildings === playerBuildings ? 'player' : 'enemy';
-      const maxGas = hasExpansion(team) ? 4 : 2;
+      const maxGas = hasThirdExpansion(team) ? 6 : (hasExpansion(team) ? 4 : 2);
       if (gasCount >= maxGas) continue;
       available.push(btype);
       continue;
@@ -596,7 +655,9 @@ function spawnUnit(defName, x, y, team) {
       miningState: 'idle',
       miningTimer: 0,
       assignedPatch: null,
+      assignedGeyser: null,
       carrying: 0,
+      carryType: 'minerals',
       // Ability state
       siegeMode: false,
       siegeTimer: 0,
@@ -657,7 +718,7 @@ function startGame(faction) {
   gameTime = 0;
   playerRallyX = ARENA_W / 2; // start holding near base
   playerRallyY = GAME_H - 400;
-  placingBuilding = null;
+  workerSplitPct = 50;
   enemyStance = 'attack';
   aiTimer = 0;
   aiArmyValue = 0;
@@ -687,7 +748,8 @@ function findNearestPatch(unit) {
   const teamPatches = unit.team === 'player' ? mineralPatches.player : mineralPatches.enemy;
   const expKey = unit.team === 'player' ? 'playerExpansion' : 'enemyExpansion';
   const expPatches = hasExpansion(unit.team) ? (mineralPatches[expKey] || []) : [];
-  const patches = [...teamPatches, ...expPatches];
+  const thirdPatches = hasThirdExpansion(unit.team) ? (mineralPatches.thirdExpansion || []) : [];
+  const patches = [...teamPatches, ...expPatches, ...thirdPatches];
   let best = null, bestD = Infinity;
   for (const p of patches) {
     if (p.minerals <= 0) continue;
@@ -753,12 +815,73 @@ function findNearestBase(unit) {
   const buildings = unit.team === 'player' ? playerBuildings : enemyBuildings;
   let bestD = Infinity, bestX = ARENA_W / 2, bestY = unit.team === 'player' ? GAME_H - 90 : 90;
   for (const b of buildings) {
-    if (b.type !== '_base' && !BUILDING_DEFS[b.type].isExpansion) continue;
+    const bdef = BUILDING_DEFS[b.type];
+    if (b.type !== '_base' && !(bdef && (bdef.isExpansion || bdef.isThirdExpansion))) continue;
     if (!b.built) continue;
     const d = dist(unit, b);
     if (d < bestD) { bestD = d; bestX = b.x; bestY = b.y; }
   }
   return { x: bestX, y: bestY };
+}
+
+// Redistribute workers across bases based on workerSplitPct
+function redistributeWorkers() {
+  const allWorkers = units.filter(u => !u.dead && u.team === 'player' && u.worker && !u.assignedGeyser);
+  if (allWorkers.length === 0) return;
+
+  const mainBase = playerBuildings.find(b => b.type === '_base' && b.built);
+  const expBase = playerBuildings.find(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isExpansion && b.built);
+  const thirdBase = playerBuildings.find(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isThirdExpansion && b.built);
+
+  const mainCount = Math.round(allWorkers.length * workerSplitPct / 100);
+  const remain = allWorkers.length - mainCount;
+
+  // Sort workers by Y position (closest to main base first)
+  allWorkers.sort((a, b) => b.y - a.y);
+
+  for (let i = 0; i < allWorkers.length; i++) {
+    const w = allWorkers[i];
+    let targetBase;
+    if (i < mainCount) {
+      targetBase = mainBase;
+    } else if (thirdBase) {
+      // Split remaining between nat and third
+      const natCount = Math.round(remain / 2);
+      if (i < mainCount + natCount) {
+        targetBase = expBase;
+      } else {
+        targetBase = thirdBase;
+      }
+    } else {
+      targetBase = expBase;
+    }
+    if (targetBase && dist(w, targetBase) > 100) {
+      w.miningState = 'rally';
+      w.rallyX = targetBase.x;
+      w.rallyY = targetBase.y;
+      w.assignedPatch = null;
+    }
+  }
+}
+
+// Find nearest gas geyser with refinery that has a worker slot for this unit
+function findAssignedGeyser(unit) {
+  const team = unit.team;
+  const geysers = getGasGeysers(team);
+  const buildings = team === 'player' ? playerBuildings : enemyBuildings;
+  let best = null, bestD = Infinity;
+  for (const g of geysers) {
+    if (g.expansion && !hasExpansion(team)) continue;
+    if (g.thirdExp && !hasThirdExpansion(team)) continue;
+    if (!hasRefineryOnGeyser(g, team)) continue;
+    if (g.workers <= 0) continue;
+    // Count how many workers are already physically assigned to this geyser
+    const assigned = units.filter(u => !u.dead && u.team === team && u.worker && u.assignedGeyser === g).length;
+    if (assigned >= g.workers) continue;
+    const d = dist(unit, g);
+    if (d < bestD) { bestD = d; best = g; }
+  }
+  return best;
 }
 
 function updateWorker(unit, dt) {
@@ -769,7 +892,6 @@ function updateWorker(unit, dt) {
 
   switch (unit.miningState) {
     case 'rally': {
-      // Move to rally point, then start mining from there
       const dx = unit.rallyX - unit.x;
       const dy = unit.rallyY - unit.y;
       const d = Math.sqrt(dx*dx + dy*dy);
@@ -781,10 +903,18 @@ function updateWorker(unit, dt) {
       break;
     }
     case 'idle': {
-      // Find nearest mineral patch
+      // Try gas first if there's an open slot
+      const geyser = findAssignedGeyser(unit);
+      if (geyser) {
+        unit.assignedGeyser = geyser;
+        unit.miningState = 'toGas';
+        break;
+      }
+      // Otherwise mine minerals
       const patch = findNearestPatch(unit);
       if (patch) {
         unit.assignedPatch = patch;
+        unit.assignedGeyser = null;
         unit.miningState = 'toMineral';
       }
       break;
@@ -807,7 +937,6 @@ function updateWorker(unit, dt) {
     }
     case 'mining': {
       unit.miningTimer -= dt;
-      // Mining sparkle
       if (Math.random() < 0.08) {
         spawnParticle(unit.x + (Math.random()-0.5)*8, unit.y + (Math.random()-0.5)*8, '#44ccff', 2);
       }
@@ -815,6 +944,34 @@ function updateWorker(unit, dt) {
         const amount = Math.min(CARRY_AMOUNT, unit.assignedPatch.minerals);
         unit.assignedPatch.minerals -= amount;
         unit.carrying = amount;
+        unit.carryType = 'minerals';
+        unit.miningState = 'toBase';
+      }
+      break;
+    }
+    case 'toGas': {
+      if (!unit.assignedGeyser) { unit.miningState = 'idle'; break; }
+      const d = dist(unit, unit.assignedGeyser);
+      if (d < 15) {
+        unit.miningState = 'miningGas';
+        unit.miningTimer = 2.5; // Gas harvest time
+      } else {
+        const angle = Math.atan2(unit.assignedGeyser.y - unit.y, unit.assignedGeyser.x - unit.x);
+        unit.x += Math.cos(angle) * moveSpeed * dt;
+        unit.y += Math.sin(angle) * moveSpeed * dt;
+      }
+      break;
+    }
+    case 'miningGas': {
+      unit.miningTimer -= dt;
+      if (Math.random() < 0.06) {
+        spawnParticle(unit.x + (Math.random()-0.5)*8, unit.y + (Math.random()-0.5)*8, '#44ee66', 2);
+      }
+      if (unit.miningTimer <= 0) {
+        const amount = Math.min(4, unit.assignedGeyser.gas);
+        unit.assignedGeyser.gas -= amount;
+        unit.carrying = amount;
+        unit.carryType = 'gas';
         unit.miningState = 'toBase';
       }
       break;
@@ -822,11 +979,17 @@ function updateWorker(unit, dt) {
     case 'toBase': {
       const d = dist(unit, { x: baseX, y: baseY });
       if (d < 20) {
-        // Deliver minerals
-        if (unit.team === 'player') playerMinerals += unit.carrying;
-        else enemyMinerals += unit.carrying;
+        // Deliver resources
+        if (unit.carryType === 'gas') {
+          if (unit.team === 'player') playerGas = Math.min(9999, playerGas + unit.carrying);
+          else enemyGas = Math.min(9999, enemyGas + unit.carrying);
+          spawnParticle(unit.x, unit.y, '#44ee66', 3);
+        } else {
+          if (unit.team === 'player') playerMinerals += unit.carrying;
+          else enemyMinerals += unit.carrying;
+          spawnParticle(unit.x, unit.y, '#44ccff', 3);
+        }
         unit.carrying = 0;
-        spawnParticle(unit.x, unit.y, '#44ccff', 3);
         unit.miningState = 'idle';
       } else {
         const angle = Math.atan2(baseY - unit.y, baseX - unit.x);
@@ -843,15 +1006,18 @@ function updateWorker(unit, dt) {
 function getBuildingForUnit(unitType, buildings) {
   const def = UNIT_DEFS[unitType];
   if (def.worker) {
-    // Workers from base or expansion
+    // Workers: single queue across all bases — find shortest queue
+    let best = null, bestQ = Infinity;
     const base = buildings.find(b => b.type === '_base' && b.built);
-    if (base && base.queue.length < 2) return base;
+    if (base && base.queue.length < bestQ) { bestQ = base.queue.length; best = base; }
     for (const b of buildings) {
       if (!b.built) continue;
       const bdef = BUILDING_DEFS[b.type];
-      if (bdef && bdef.isExpansion && bdef.unlocks && bdef.unlocks.includes(unitType)) return b;
+      if (bdef && (bdef.isExpansion || bdef.isThirdExpansion) && bdef.unlocks && bdef.unlocks.includes(unitType)) {
+        if (b.queue.length < bestQ) { bestQ = b.queue.length; best = b; }
+      }
     }
-    return base;
+    return best;
   }
   // Find building with shortest queue that can produce this unit
   let best = null, bestQ = Infinity;
@@ -1054,18 +1220,17 @@ function hasExpansion(team) {
   });
 }
 
+function hasThirdExpansion(team) {
+  const buildings = team === 'player' ? playerBuildings : enemyBuildings;
+  return buildings.some(b => {
+    const bdef = BUILDING_DEFS[b.type];
+    return bdef && bdef.isThirdExpansion && b.built;
+  });
+}
+
+// Gas income is now physical — workers walk to geysers and back
 function updateGasIncome(team, dt) {
-  const geysers = getGasGeysers(team);
-  for (const g of geysers) {
-    if (g.expansion && !hasExpansion(team)) continue;
-    if (g.workers <= 0 || g.gas <= 0) continue;
-    if (!hasRefineryOnGeyser(g, team)) continue;
-    const mined = GAS_PER_WORKER_PER_SEC * g.workers * dt;
-    const actual = Math.min(mined, g.gas);
-    g.gas -= actual;
-    if (team === 'player') playerGas = Math.min(9999, playerGas + actual);
-    else enemyGas = Math.min(9999, enemyGas + actual);
-  }
+  // No-op: gas mining handled by worker state machine (toGas/miningGas/toBase)
 }
 
 // ---- Game Logic Update ----
@@ -1258,8 +1423,11 @@ function updateGame(dt) {
         const pushStr = (minDist - d) * 0.4 * dt * 30;
         const nx = dx / d * pushStr;
         const ny = dy / d * pushStr;
-        a.x += nx; a.y += ny;
-        b.x -= nx; b.y -= ny;
+        // Only push if destination isn't blocked
+        if (!a.isAir && posBlocked(a.x + nx, a.y + ny, a.r)) { /* skip */ }
+        else { a.x += nx; a.y += ny; }
+        if (!b.isAir && posBlocked(b.x - nx, b.y - ny, b.r)) { /* skip */ }
+        else { b.x -= nx; b.y -= ny; }
       }
     }
     a.x = Math.max(25, Math.min(ARENA_W - 25, a.x));
@@ -1567,9 +1735,13 @@ function updateEnemyAI(dt) {
   const gasType = FACTION_GAS[enemyFaction];
   const gasCount = enemyBuildings.filter(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding).length;
   if (gameTime > P.gasTime) {
-    const maxGas = hasExpansion('enemy') ? 4 : 2;
+    const maxGas = hasThirdExpansion('enemy') ? 6 : (hasExpansion('enemy') ? 4 : 2);
     if (gasCount < maxGas && enemyMinerals >= BUILDING_DEFS[gasType].cost) {
-      const availGeysers = gasGeysers.enemy.filter(g => (!g.expansion || hasExpansion('enemy')) && !hasRefineryOnGeyser(g, 'enemy'));
+      const availGeysers = gasGeysers.enemy.filter(g => {
+        if (g.expansion && !hasExpansion('enemy')) return false;
+        if (g.thirdExp && !hasThirdExpansion('enemy')) return false;
+        return !hasRefineryOnGeyser(g, 'enemy');
+      });
       if (availGeysers.length > 0) {
         const geyser = availGeysers[0];
         enemyMinerals -= BUILDING_DEFS[gasType].cost;
@@ -1583,7 +1755,7 @@ function updateEnemyAI(dt) {
   }
 
   // ---- Workers: scale with economy ----
-  const maxWorkers = hasExpansion('enemy') ? Math.min(P.workerCap + 6, 24) : P.workerCap;
+  const maxWorkers = hasThirdExpansion('enemy') ? Math.min(P.workerCap + 12, 36) : (hasExpansion('enemy') ? Math.min(P.workerCap + 6, 24) : P.workerCap);
   if (workerCount < maxWorkers && canAffordUnit(workerType, 'enemy')) {
     const workerBuilding = getBuildingForUnit(workerType, enemyBuildings);
     if (workerBuilding && workerBuilding.queue.length < 2) {
@@ -1598,8 +1770,19 @@ function updateEnemyAI(dt) {
   if (!enemyHasExpansion && gameTime > P.expandTime && enemyMinerals >= 400) {
     enemyMinerals -= 400;
     enemyBuildings.push({
-      type: expansionType, x: ARENA_W / 2, y: 55,
+      type: expansionType, x: ARENA_W / 2, y: ENEMY_EXP_Y,
       hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
+    });
+  }
+  // ---- Third Expansion (contested) ----
+  const thirdExpType = FACTION_THIRD_EXPANSION[enemyFaction];
+  const enemyHasThird = enemyBuildings.some(b => b.type === thirdExpType);
+  const playerHasThird = playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isThirdExpansion);
+  if (!enemyHasThird && !playerHasThird && hasExpansion('enemy') && gameTime > P.expandTime + 60 && enemyMinerals >= 400) {
+    enemyMinerals -= 400;
+    enemyBuildings.push({
+      type: thirdExpType, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
+      hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 20, queue: [],
     });
   }
 
@@ -1782,19 +1965,6 @@ function render() {
 
   ctx.restore(); // end world-space
 
-  // Building placement mode indicator
-  if (placingBuilding) {
-    ctx.fillStyle = 'rgba(0, 255, 100, 0.15)';
-    ctx.fillRect(0, 0, ARENA_W, VIEWPORT_H);
-    ctx.fillStyle = '#44ff44';
-    ctx.font = 'bold 10px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('TAP TO PLACE ' + placingBuilding.bdef.name.toUpperCase(), ARENA_W / 2, VIEWPORT_H / 2 - 10);
-    ctx.font = '8px monospace';
-    ctx.fillStyle = '#88ff88';
-    ctx.fillText('(buildings block movement — use for walls!)', ARENA_W / 2, VIEWPORT_H / 2 + 5);
-  }
-
   // Screen-space UI
   drawHUD();
   drawProductionPanel();
@@ -1815,10 +1985,14 @@ function drawArena() {
   ctx.fillStyle = 'rgba(80, 40, 50, 0.3)';
   ctx.fillRect(20, 0, ARENA_W - 40, 350);
 
-  // Expansion areas (behind main bases)
+  // Natural expansion areas (between main base and mid)
   ctx.fillStyle = 'rgba(80, 70, 30, 0.2)';
-  ctx.fillRect(20, 0, ARENA_W - 40, 80);           // Enemy expansion (top)
-  ctx.fillRect(20, GAME_H - 80, ARENA_W - 40, 80); // Player expansion (bottom)
+  ctx.fillRect(20, ENEMY_EXP_Y - 40, ARENA_W - 40, 150);      // Enemy natural
+  ctx.fillRect(20, PLAYER_EXP_Y - 110, ARENA_W - 40, 150);     // Player natural
+
+  // Third expansion corridor (left side near river)
+  ctx.fillStyle = 'rgba(100, 50, 30, 0.15)';
+  ctx.fillRect(20, THIRD_EXP_Y - 100, 120, 200);
 
   // Grid lines (only draw visible ones)
   ctx.strokeStyle = '#2a2a4e';
@@ -1845,18 +2019,25 @@ function drawArena() {
   ctx.fillStyle = '#444488';
   ctx.fillRect(18, 0, 2, GAME_H);
 
-  // Expansion labels (behind main bases)
-  if (isVisible(40)) {
+  // Natural expansion labels
+  if (isVisible(ENEMY_EXP_Y)) {
     ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
     ctx.font = 'bold 6px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('EXPANSION', ARENA_W / 2, 40);
+    ctx.fillText('NATURAL', ARENA_W / 2, ENEMY_EXP_Y + 30);
   }
-  if (isVisible(GAME_H - 40)) {
+  if (isVisible(PLAYER_EXP_Y)) {
     ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
     ctx.font = 'bold 6px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('EXPANSION', ARENA_W / 2, GAME_H - 40);
+    ctx.fillText('NATURAL', ARENA_W / 2, PLAYER_EXP_Y + 30);
+  }
+  // Third expansion label
+  if (isVisible(THIRD_EXP_Y)) {
+    ctx.fillStyle = 'rgba(200, 120, 60, 0.3)';
+    ctx.font = 'bold 5px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('3RD EXP', THIRD_EXP_X + 50, THIRD_EXP_Y + 20);
   }
 
   // Ramp indicators
@@ -1864,7 +2045,7 @@ function drawArena() {
     ctx.fillStyle = 'rgba(150, 120, 60, 0.4)';
     ctx.font = 'bold 5px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('RAMP', 150, GAME_H - 355);
+    ctx.fillText('RAMP', 150, GAME_H - 356);
   }
   if (isVisible(330)) {
     ctx.fillStyle = 'rgba(150, 120, 60, 0.4)';
@@ -3295,6 +3476,7 @@ function drawGasGeysers() {
     for (const g of geysers) {
       // Skip expansion geysers until expansion is built
       if (g.expansion && !hasExpansion(key)) continue;
+      if (g.thirdExp && !hasThirdExpansion(key)) continue;
       if (!isVisible(g.y)) continue;
       const frac = g.gas / g.maxGas;
       const size = 8 + frac * 4;
@@ -3333,7 +3515,8 @@ function drawGasGeysers() {
 function drawMineralPatches() {
   const expPlayerPatches = hasExpansion('player') ? (mineralPatches.playerExpansion || []) : [];
   const expEnemyPatches = hasExpansion('enemy') ? (mineralPatches.enemyExpansion || []) : [];
-  const allPatches = [...mineralPatches.player, ...mineralPatches.enemy, ...expPlayerPatches, ...expEnemyPatches];
+  const thirdPatches = (hasThirdExpansion('player') || hasThirdExpansion('enemy')) ? (mineralPatches.thirdExpansion || []) : [];
+  const allPatches = [...mineralPatches.player, ...mineralPatches.enemy, ...expPlayerPatches, ...expEnemyPatches, ...thirdPatches];
   for (const p of allPatches) {
     if (p.minerals <= 0) {
       // Depleted
@@ -3546,7 +3729,7 @@ function drawProductionPanel() {
   for (const b of playerBuildings) {
     const bdef = BUILDING_DEFS[b.type];
     if (!bdef) continue;
-    if (bdef.supplyCap && b.type !== '_base' && !bdef.isExpansion) continue;
+    if (bdef.supplyCap && b.type !== '_base' && !bdef.isExpansion && !bdef.isThirdExpansion) continue;
     if (bdef.gasBuilding) continue;
     if (!buildingGroups.has(b.type)) buildingGroups.set(b.type, []);
     buildingGroups.get(b.type).push(b);
@@ -3677,23 +3860,77 @@ function drawProductionPanel() {
     y += 4;
   }
 
-  // Worker transfer button (visible when expansion exists)
+  // Worker split slider (visible when expansion exists)
   if (hasExpansion('player')) {
-    const mainWorkers = units.filter(u => !u.dead && u.team === 'player' && u.worker && u.y > GAME_H - 300);
-    const transferCount = Math.max(1, Math.floor(mainWorkers.length / 2));
-    if (mainWorkers.length > 0 && y > -20 && y < VIEWPORT_H) {
-      const workerName = WORKER_TYPE[playerFaction].toUpperCase();
-      ctx.fillStyle = '#443300';
-      ctx.fillRect(px + 4, y, BTN_W, 16);
-      ctx.strokeStyle = '#ffaa00';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px + 4, y, BTN_W, 16);
+    const totalWorkers = units.filter(u => !u.dead && u.team === 'player' && u.worker).length;
+    const baseCount = hasThirdExpansion('player') ? 3 : 2;
+    if (y > -40 && y < VIEWPORT_H) {
       ctx.fillStyle = '#ffcc44';
-      ctx.font = 'bold 7px monospace';
+      ctx.font = 'bold 6px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('SEND ' + transferCount + ' TO EXP', px + PANEL_W/2, y + 11);
+      ctx.fillText('WORKER SPLIT', px + PANEL_W/2, y + 6);
+      y += 10;
+
+      // Slider track
+      const sliderX = px + 8;
+      const sliderW = PANEL_W - 16;
+      ctx.fillStyle = '#222';
+      ctx.fillRect(sliderX, y, sliderW, 10);
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(sliderX, y, sliderW, 10);
+
+      // Slider fill
+      const fillW = (workerSplitPct / 100) * sliderW;
+      ctx.fillStyle = '#336699';
+      ctx.fillRect(sliderX, y, fillW, 10);
+
+      // Slider handle
+      ctx.fillStyle = '#88ccff';
+      ctx.fillRect(sliderX + fillW - 2, y - 1, 4, 12);
+
+      // Labels
+      ctx.font = 'bold 5px monospace';
+      ctx.textAlign = 'center';
+      const mainPct = workerSplitPct;
+      if (baseCount === 2) {
+        const mainW = Math.round(totalWorkers * mainPct / 100);
+        const expW = totalWorkers - mainW;
+        ctx.fillStyle = '#88ccff';
+        ctx.fillText('MAIN:' + mainW, sliderX + sliderW * 0.25, y + 8);
+        ctx.fillStyle = '#ffaa44';
+        ctx.fillText('NAT:' + expW, sliderX + sliderW * 0.75, y + 8);
+      } else {
+        const mainW = Math.round(totalWorkers * mainPct / 100);
+        const remain = totalWorkers - mainW;
+        const natW = Math.round(remain / 2);
+        const thirdW = remain - natW;
+        ctx.fillStyle = '#88ccff';
+        ctx.fillText('M:' + mainW, sliderX + sliderW * 0.17, y + 8);
+        ctx.fillStyle = '#ffaa44';
+        ctx.fillText('N:' + natW, sliderX + sliderW * 0.5, y + 8);
+        ctx.fillStyle = '#ff6666';
+        ctx.fillText('3:' + thirdW, sliderX + sliderW * 0.83, y + 8);
+      }
+      y += 14;
+
+      // - and + buttons
+      const btnW = (PANEL_W - 20) / 2;
+      ctx.fillStyle = '#442222';
+      ctx.fillRect(px + 4, y, btnW, 12);
+      ctx.fillStyle = '#ff8888';
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('-10%', px + 4 + btnW/2, y + 10);
+
+      ctx.fillStyle = '#224422';
+      ctx.fillRect(px + 8 + btnW, y, btnW, 12);
+      ctx.fillStyle = '#88ff88';
+      ctx.fillText('+10%', px + 8 + btnW + btnW/2, y + 10);
+    } else {
+      y += 10 + 14;
     }
-    y += 20;
+    y += 16;
   }
 
   // Available buildings to construct
@@ -3919,7 +4156,7 @@ function getPanelButtons() {
   for (const b of playerBuildings) {
     const bdef = BUILDING_DEFS[b.type];
     if (!bdef) continue;
-    if (bdef.supplyCap && b.type !== '_base' && !bdef.isExpansion) continue;
+    if (bdef.supplyCap && b.type !== '_base' && !bdef.isExpansion && !bdef.isThirdExpansion) continue;
     if (bdef.gasBuilding) continue;
     if (!buildingGroups.has(b.type)) buildingGroups.set(b.type, []);
     buildingGroups.get(b.type).push(b);
@@ -3967,10 +4204,14 @@ function getPanelButtons() {
     y += 4;
   }
 
-  // Worker transfer button
+  // Worker split slider buttons
   if (hasExpansion('player')) {
-    buttons.push({ type: '_transfer_workers', x: px + 4, y, w: BTN_W, h: 16, isTransfer: true });
-    y += 20;
+    y += 10; // label
+    y += 14; // slider
+    const btnW = (PANEL_W - 20) / 2;
+    buttons.push({ type: '_split_minus', x: px + 4, y, w: btnW, h: 12, isSplit: true });
+    buttons.push({ type: '_split_plus', x: px + 8 + btnW, y, w: btnW, h: 12, isSplit: true });
+    y += 16;
   }
 
   // Available buildings to construct
@@ -4002,18 +4243,11 @@ function handleInput(x, y) {
         if (btn.type === '_gas_minus' && btn.geyser.workers > 0) btn.geyser.workers--;
         return;
       }
-      // Worker transfer to expansion
-      if (btn.isTransfer) {
-        const expBuilding = playerBuildings.find(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isExpansion && b.built);
-        if (expBuilding) {
-          const mainWorkers = units.filter(u => !u.dead && u.team === 'player' && u.worker && u.y > GAME_H - 400 && (u.miningState === 'idle' || u.miningState === 'toMineral' || u.miningState === 'mining'));
-          const count = Math.max(1, Math.floor(mainWorkers.length / 2));
-          for (let i = 0; i < Math.min(count, mainWorkers.length); i++) {
-            mainWorkers[i].miningState = 'rally';
-            mainWorkers[i].rallyX = expBuilding.x;
-            mainWorkers[i].rallyY = expBuilding.y;
-          }
-        }
+      // Worker split slider
+      if (btn.isSplit) {
+        if (btn.type === '_split_minus') workerSplitPct = Math.max(10, workerSplitPct - 10);
+        if (btn.type === '_split_plus') workerSplitPct = Math.min(90, workerSplitPct + 10);
+        redistributeWorkers();
         return;
       }
       // Building construction
@@ -4023,7 +4257,11 @@ function handleInput(x, y) {
         if (bdef.cost <= playerMinerals && playerGas >= gasCost) {
           if (bdef.gasBuilding) {
             // Gas buildings auto-place on geysers
-            const availGeysers = gasGeysers.player.filter(g => !g.expansion || hasExpansion('player'));
+            const availGeysers = gasGeysers.player.filter(g => {
+              if (g.expansion && !hasExpansion('player')) return false;
+              if (g.thirdExp && !hasThirdExpansion('player')) return false;
+              return true;
+            });
             const geyser = availGeysers.find(g => !hasRefineryOnGeyser(g, 'player'));
             if (!geyser) return;
             playerMinerals -= bdef.cost;
@@ -4033,16 +4271,32 @@ function handleInput(x, y) {
               hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
             });
           } else if (bdef.isExpansion) {
-            // Expansion auto-places behind base
+            // Natural expansion auto-places
             playerMinerals -= bdef.cost;
             playerGas -= gasCost;
             playerBuildings.push({
-              type: btn.type, x: ARENA_W / 2, y: GAME_H - 55,
+              type: btn.type, x: ARENA_W / 2, y: PLAYER_EXP_Y,
+              hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
+            });
+          } else if (bdef.isThirdExpansion) {
+            // Third expansion auto-places in contested corridor
+            playerMinerals -= bdef.cost;
+            playerGas -= gasCost;
+            playerBuildings.push({
+              type: btn.type, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
               hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
             });
           } else {
-            // Enter placement mode — tap arena to place
-            placingBuilding = { type: btn.type, bdef };
+            // All other buildings auto-place near base
+            playerMinerals -= bdef.cost;
+            playerGas -= gasCost;
+            const bx = 60 + playerBuildings.length * 30;
+            const by = GAME_H - 250;
+            const hp = bdef.isDefense ? bdef.defenseHp : 500;
+            playerBuildings.push({
+              type: btn.type, x: Math.min(bx, ARENA_W - 30), y: by,
+              hp, maxHp: hp, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
+            });
           }
         }
         return;
@@ -4078,38 +4332,6 @@ function handleInput(x, y) {
     const worldY = y + cameraY;
     const wx = Math.max(25, Math.min(ARENA_W - 25, x));
     const wy = Math.max(30, Math.min(GAME_H - 30, worldY));
-
-    // Building placement mode — place the building on the arena
-    if (placingBuilding) {
-      const bdef = placingBuilding.bdef;
-      const gasCost = bdef.gasCost || 0;
-      // Verify still affordable
-      if (playerMinerals >= bdef.cost && playerGas >= gasCost) {
-        // Check not overlapping obstacles
-        let blocked = false;
-        for (const obs of obstacles) {
-          if (wx + bdef.r > obs.x && wx - bdef.r < obs.x + obs.w &&
-              wy + bdef.r*0.7 > obs.y && wy - bdef.r*0.7 < obs.y + obs.h) {
-            blocked = true; break;
-          }
-        }
-        if (!blocked) {
-          playerMinerals -= bdef.cost;
-          playerGas -= gasCost;
-          const hp = bdef.isDefense ? bdef.defenseHp : 500;
-          playerBuildings.push({
-            type: placingBuilding.type, x: wx, y: wy,
-            hp, maxHp: hp, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-          });
-          // Buildings also act as obstacles for ground units (wall-off!)
-          obstacles.push({ type: 'building', x: wx - bdef.r, y: wy - bdef.r*0.7, w: bdef.r*2, h: bdef.r*1.4, buildingRef: playerBuildings[playerBuildings.length-1] });
-          placingBuilding = null;
-        }
-      } else {
-        placingBuilding = null; // can't afford anymore
-      }
-      return;
-    }
 
     // Normal click = set army rally point
     playerRallyX = wx;
