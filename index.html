@@ -395,16 +395,16 @@ const BUILDING_DEFS = {
   // TERRAN
   bunker:    { faction:'terran', cost:100, buildTime:6, name:'Bunker', unlocks:[], r:16, isDefense:true, defenseHp:400, defenseDmg:25, defenseRange:130, defenseAtkSpeed:1.0 },
   barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper','medic'], r:18 },
-  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','widowmine','ghost'], requires:'barracks', r:18 },
+  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','ghost'], requires:'barracks', r:18 },
   starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','battlecruiser'], requires:'factory', r:18 },
   // PROTOSS
   photoncannon: { faction:'protoss', cost:150, buildTime:6, name:'Cannon', unlocks:[], r:14, isDefense:true, defenseHp:300, defenseDmg:20, defenseRange:140, defenseAtkSpeed:0.9 },
-  gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','adept','sentry'], r:18 },
+  gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','sentry'], r:18 },
   robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robo Bay', unlocks:['immortal','colossus','hightemplar'], requires:'gateway', r:18 },
   fleetbeacon: { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Fleet Beacon', unlocks:['phoenix','voidray','tempest','carrier'], requires:'robo', r:18 },
   // ZERG
   spinecrawler: { faction:'zerg', cost:100, buildTime:6, name:'Spine', unlocks:[], r:14, isDefense:true, defenseHp:300, defenseDmg:30, defenseRange:120, defenseAtkSpeed:1.2 },
-  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','ravager','baneling'], r:18 },
+  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','baneling'], r:18 },
   den:       { faction:'zerg', cost:100, gasCost:100, buildTime:12, name:'Hydra Den', unlocks:['hydralisk','lurker','ultralisk'], requires:'pool', r:18 },
   spire:     { faction:'zerg', cost:200, gasCost:200, buildTime:10, name:'Spire', unlocks:['mutalisk','corruptor','broodlord'], requires:'den', r:18 },
 };
@@ -432,7 +432,6 @@ const UNIT_DEFS = {
   medic:        { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:3 },
   siegetank:    { faction:'terran', cost:150, gasCost:125, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:6 },
   hellion:      { faction:'terran', cost:100, gasCost:0,   supply:2, hp:200, dmg:35, speed:1.6, range:80,  atkSpeed:0.8, count:2, r:9,  color:'#ff8844', name:'Hellion', splash:20, buildTime:4 },
-  widowmine:    { faction:'terran', cost:75,  gasCost:25,  supply:2, hp:180, dmg:160,speed:0.8, range:100, atkSpeed:3.0, count:1, r:7,  color:'#556633', name:'W.Mine', splash:40, buildTime:4 },
   ghost:        { faction:'terran', cost:150, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost', buildTime:5 },
   scv:          { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3, buildTime:2 },
   viking:       { faction:'terran', cost:150, gasCost:75,  supply:2, hp:280, dmg:40, speed:1.3, range:120, atkSpeed:0.9, count:1, r:10, color:'#5599ee', name:'Viking', buildTime:5, isAir:true },
@@ -442,7 +441,6 @@ const UNIT_DEFS = {
   // PROTOSS — SC2 costs
   zealot:       { faction:'protoss', cost:100, gasCost:0,   supply:2, hp:530, dmg:56, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
   stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:390, dmg:53, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
-  adept:        { faction:'protoss', cost:100, gasCost:25,  supply:2, hp:280, dmg:45, speed:1.3, range:80,  atkSpeed:0.9, count:2, r:9,  color:'#bb8800', name:'Adept', buildTime:3 },
   sentry:       { faction:'protoss', cost:50,  gasCost:100, supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:140, buildTime:3 },
   hightemplar:  { faction:'protoss', cost:50,  gasCost:150, supply:2, hp:280, dmg:180,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:55, buildTime:6 },
   immortal:     { faction:'protoss', cost:275, gasCost:100, supply:4, hp:650, dmg:85, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:5 },
@@ -455,7 +453,6 @@ const UNIT_DEFS = {
   // ZERG — SC2 costs
   zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:165, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
   roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:540, dmg:37, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
-  ravager:      { faction:'zerg', cost:100, gasCost:100, supply:3, hp:480, dmg:55, speed:1.0, range:100, atkSpeed:1.0, count:1, r:11, color:'#cc4444', name:'Ravager', splash:25, buildTime:4 },
   hydralisk:    { faction:'zerg', cost:100, gasCost:50,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:4 },
   lurker:       { faction:'zerg', cost:150, gasCost:100, supply:3, hp:400, dmg:70, speed:0.6, range:140, atkSpeed:1.5, count:1, r:10, color:'#884422', name:'Lurker', splash:30, buildTime:6 },
   baneling:     { faction:'zerg', cost:25,  gasCost:25,  supply:1, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:4, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:3 },
