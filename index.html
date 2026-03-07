@@ -199,7 +199,7 @@ const CARRY_AMOUNT = 5;
 // ---- Gas System ----
 let playerGas = 0;
 let enemyGas = 0;
-const GAS_PER_WORKER_PER_SEC = 0.63; // ~114 gas/min with 3 workers (real SC2 rate)
+const GAS_PER_WORKER_PER_SEC = 0.91; // ~163 gas/min with 3 workers (real SC2 rate)
 
 // ---- Supply System ----
 let playerSupply = 0;
@@ -221,9 +221,9 @@ function makeObstacles() {
     { type: 'rock', x: ARENA_W - 80, y: RIVER_Y - 60, w: 40, h: 25, name: 'Rocks' },
     { type: 'rock', x: 40, y: RIVER_Y + RIVER_H + 35, w: 40, h: 25, name: 'Rocks' },
     { type: 'rock', x: ARENA_W - 80, y: RIVER_Y + RIVER_H + 35, w: 40, h: 25, name: 'Rocks' },
-    // Mid-field cover positions
-    { type: 'rock', x: ARENA_W/2 - 20, y: RIVER_Y - 150, w: 35, h: 20, name: 'Ridge' },
-    { type: 'rock', x: ARENA_W/2 - 20, y: RIVER_Y + RIVER_H + 130, w: 35, h: 20, name: 'Ridge' },
+    // Mid-field cover positions (offset from expansion bases)
+    { type: 'rock', x: 30, y: RIVER_Y - 180, w: 30, h: 18, name: 'Ridge' },
+    { type: 'rock', x: 30, y: RIVER_Y + RIVER_H + 162, w: 30, h: 18, name: 'Ridge' },
     // Side cliffs near bases creating natural chokes
     { type: 'rock', x: 25, y: GAME_H - 400, w: 30, h: 35, name: 'Cliff' },
     { type: 'rock', x: ARENA_W - 55, y: GAME_H - 400, w: 30, h: 35, name: 'Cliff' },
@@ -236,6 +236,43 @@ function pointInObstacle(px, py, obs, unitR) {
   const r = unitR || 0;
   return px + r > obs.x && px - r < obs.x + obs.w &&
          py + r > obs.y && py - r < obs.y + obs.h;
+}
+
+// Try to move a ground unit, sliding around obstacles if blocked
+function moveWithSlide(unit, vx, vy, dt) {
+  if (unit.isAir) {
+    unit.x += vx * dt;
+    unit.y += vy * dt;
+    return;
+  }
+  const nx = unit.x + vx * dt;
+  const ny = unit.y + vy * dt;
+  let fullBlocked = false;
+  for (const obs of obstacles) {
+    if (pointInObstacle(nx, ny, obs, unit.r)) { fullBlocked = true; break; }
+  }
+  if (!fullBlocked) {
+    unit.x = nx;
+    unit.y = ny;
+  } else {
+    // Try sliding on X axis only
+    let xOk = true;
+    const sx = unit.x + vx * dt;
+    for (const obs of obstacles) {
+      if (pointInObstacle(sx, unit.y, obs, unit.r)) { xOk = false; break; }
+    }
+    if (xOk) { unit.x = sx; }
+    // Try sliding on Y axis only
+    let yOk = true;
+    const sy = unit.y + vy * dt;
+    for (const obs of obstacles) {
+      if (pointInObstacle(unit.x, sy, obs, unit.r)) { yOk = false; break; }
+    }
+    if (yOk) { unit.y = sy; }
+  }
+  // Clamp to arena bounds
+  unit.x = Math.max(25, Math.min(ARENA_W - 25, unit.x));
+  unit.y = Math.max(25, Math.min(GAME_H - 25, unit.y));
 }
 
 function drawObstacles() {
@@ -260,8 +297,12 @@ function drawObstacles() {
   }
 }
 
-// 6 mineral patches per base, 2 gas geysers per base, expansion patches
+// 6 mineral patches per base, 2 gas geysers per base, + expansion patches & geysers
 function makeMineralPatches() {
+  // Player expansion at (ARENA_W/2, RIVER_Y + RIVER_H + 150) ≈ (155, 868)
+  // Enemy expansion at (ARENA_W/2, RIVER_Y - 150) ≈ (155, 550)
+  const pExpY = RIVER_Y + RIVER_H + 150;
+  const eExpY = RIVER_Y - 150;
   return {
     player: [
       { x: 35,  y: GAME_H - 110, minerals: 1800, maxMinerals: 1800 },
@@ -279,23 +320,41 @@ function makeMineralPatches() {
       { x: ARENA_W/2 + 30, y: 100, minerals: 1800, maxMinerals: 1800 },
       { x: ARENA_W - 50, y: 105, minerals: 1800, maxMinerals: 1800 },
     ],
-    expansion: [
-      { x: 60,  y: RIVER_Y - 120, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W - 60, y: RIVER_Y - 120, minerals: 1500, maxMinerals: 1500 },
-      { x: 60,  y: RIVER_Y + RIVER_H + 120, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W - 60, y: RIVER_Y + RIVER_H + 120, minerals: 1500, maxMinerals: 1500 },
-    ]
+    playerExpansion: [
+      { x: ARENA_W/2 - 60, y: pExpY - 25, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2 - 30, y: pExpY - 30, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2,      y: pExpY - 28, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2 + 30, y: pExpY - 25, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2 + 60, y: pExpY - 30, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2 + 90, y: pExpY - 25, minerals: 1500, maxMinerals: 1500 },
+    ],
+    enemyExpansion: [
+      { x: ARENA_W/2 - 60, y: eExpY + 25, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2 - 30, y: eExpY + 30, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2,      y: eExpY + 28, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2 + 30, y: eExpY + 25, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2 + 60, y: eExpY + 30, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2 + 90, y: eExpY + 25, minerals: 1500, maxMinerals: 1500 },
+    ],
   };
 }
 function makeGasGeysers() {
+  const pExpY = RIVER_Y + RIVER_H + 150;
+  const eExpY = RIVER_Y - 150;
   return {
     player: [
       { x: ARENA_W - 40, y: GAME_H - 65, gas: 2250, maxGas: 2250, workers: 0 },
       { x: ARENA_W - 70, y: GAME_H - 50, gas: 2250, maxGas: 2250, workers: 0 },
+      // Expansion geysers (available after building expansion)
+      { x: ARENA_W/2 - 50, y: pExpY + 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: ARENA_W/2 + 70, y: pExpY + 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
     ],
     enemy: [
       { x: ARENA_W - 40, y: 65, gas: 2250, maxGas: 2250, workers: 0 },
       { x: ARENA_W - 70, y: 50, gas: 2250, maxGas: 2250, workers: 0 },
+      // Expansion geysers
+      { x: ARENA_W/2 - 50, y: eExpY - 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: ARENA_W/2 + 70, y: eExpY - 20, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
     ],
   };
 }
@@ -576,7 +635,9 @@ function dist(a, b) {
 
 function findNearestPatch(unit) {
   const teamPatches = unit.team === 'player' ? mineralPatches.player : mineralPatches.enemy;
-  const patches = [...teamPatches, ...(mineralPatches.expansion || [])];
+  const expKey = unit.team === 'player' ? 'playerExpansion' : 'enemyExpansion';
+  const expPatches = hasExpansion(unit.team) ? (mineralPatches[expKey] || []) : [];
+  const patches = [...teamPatches, ...expPatches];
   let best = null, bestD = Infinity;
   for (const p of patches) {
     if (p.minerals <= 0) continue;
@@ -756,11 +817,17 @@ function updateBuildings(buildings, team, dt) {
       b.buildProgress += dt;
       if (b.buildProgress >= b.buildTime) {
         b.built = true;
-        // Add supply cap if supply building
         const bdef = BUILDING_DEFS[b.type];
+        // Add supply cap if supply building
         if (bdef && bdef.supplyCap) {
           if (team === 'player') playerSupplyMax += bdef.supplyCap;
           else enemySupplyMax += bdef.supplyCap;
+        }
+        // Auto-assign 3 gas workers when refinery completes
+        if (bdef && bdef.gasBuilding) {
+          const geysers = getGasGeysers(team);
+          const geyser = geysers.find(g => Math.abs(g.x - b.x) < 20 && Math.abs(g.y - b.y) < 20);
+          if (geyser) geyser.workers = 3;
         }
       }
     }
@@ -856,9 +923,18 @@ function hasRefineryOnGeyser(geyser, team) {
   });
 }
 
+function hasExpansion(team) {
+  const buildings = team === 'player' ? playerBuildings : enemyBuildings;
+  return buildings.some(b => {
+    const bdef = BUILDING_DEFS[b.type];
+    return bdef && bdef.isExpansion && b.built;
+  });
+}
+
 function updateGasIncome(team, dt) {
   const geysers = getGasGeysers(team);
   for (const g of geysers) {
+    if (g.expansion && !hasExpansion(team)) continue;
     if (g.workers <= 0 || g.gas <= 0) continue;
     if (!hasRefineryOnGeyser(g, team)) continue;
     const mined = GAS_PER_WORKER_PER_SEC * g.workers * dt;
@@ -999,18 +1075,7 @@ function updateGame(dt) {
           if (!blocked) {
             const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
             const moveSpeed = effectiveSpeed * 50;
-            const nx = unit.x + Math.cos(angle) * moveSpeed * dt;
-            const ny = unit.y + Math.sin(angle) * moveSpeed * dt;
-            let obsBlocked = false;
-            if (!unit.isAir) {
-              for (const obs of obstacles) {
-                if (pointInObstacle(nx, ny, obs, unit.r)) { obsBlocked = true; break; }
-              }
-            }
-            if (!obsBlocked) {
-              unit.x = nx;
-              unit.y = ny;
-            }
+            moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
           }
         }
         // Siege tank: unsiege when target out of range
@@ -1042,21 +1107,8 @@ function updateGame(dt) {
           }
         }
         if (!blocked) {
-          // Check obstacle collision for ground units
-          let canMove = true;
-          if (!unit.isAir) {
-            const nx = unit.x + (dx / dLen) * effectiveSpeed * 50 * dt;
-            const ny = unit.y + (dy / dLen) * effectiveSpeed * 50 * dt;
-            for (const obs of obstacles) {
-              if (pointInObstacle(nx, ny, obs, unit.r)) { canMove = false; break; }
-            }
-          }
-          if (canMove) {
-            unit.x += (dx / dLen) * effectiveSpeed * 50 * dt;
-            unit.y += (dy / dLen) * effectiveSpeed * 50 * dt;
-            // Clamp to arena bounds
-            unit.x = Math.max(25, Math.min(ARENA_W - 25, unit.x));
-          }
+          const moveSpeed = effectiveSpeed * 50;
+          moveWithSlide(unit, (dx / dLen) * moveSpeed, (dy / dLen) * moveSpeed, dt);
         }
       }
       // Siege tank: unsiege when no target
@@ -1257,14 +1309,29 @@ function updateEnemyAI(dt) {
 
   // Phase 1.5: Build expansion base after some time
   const expansionType = FACTION_EXPANSION[enemyFaction];
-  const hasExpansion = enemyBuildings.some(b => b.type === expansionType);
-  if (!hasExpansion && gameTime > 90 && enemyMinerals >= 400) {
+  const enemyHasExpansion = enemyBuildings.some(b => b.type === expansionType);
+  if (!enemyHasExpansion && gameTime > 90 && enemyMinerals >= 400) {
     enemyMinerals -= 400;
     enemyBuildings.push({
       type: expansionType, x: ARENA_W / 2, y: RIVER_Y - 150,
       hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
     });
     return;
+  }
+
+  // Phase 1.7: Build expansion gas refineries after expansion is built
+  if (hasExpansion('enemy') && gasCount < 4 && gasCount >= 2 && enemyMinerals >= BUILDING_DEFS[gasType].cost) {
+    const expGeysers = gasGeysers.enemy.filter(g => g.expansion && !hasRefineryOnGeyser(g, 'enemy'));
+    if (expGeysers.length > 0) {
+      const geyser = expGeysers[0];
+      enemyMinerals -= BUILDING_DEFS[gasType].cost;
+      enemyBuildings.push({
+        type: gasType, x: geyser.x, y: geyser.y,
+        hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: BUILDING_DEFS[gasType].buildTime, queue: [],
+      });
+      geyser.workers = 3;
+      return;
+    }
   }
 
   // Phase 2: Build production buildings (skip supply/gas/expansion — handled above)
@@ -2907,6 +2974,8 @@ function drawGasGeysers() {
   for (const key of ['player', 'enemy']) {
     const geysers = gasGeysers[key];
     for (const g of geysers) {
+      // Skip expansion geysers until expansion is built
+      if (g.expansion && !hasExpansion(key)) continue;
       if (!isVisible(g.y)) continue;
       const frac = g.gas / g.maxGas;
       const size = 8 + frac * 4;
@@ -2943,7 +3012,9 @@ function drawGasGeysers() {
 
 // ---- Draw Mineral Patches ----
 function drawMineralPatches() {
-  const allPatches = [...mineralPatches.player, ...mineralPatches.enemy, ...(mineralPatches.expansion || [])];
+  const expPlayerPatches = hasExpansion('player') ? (mineralPatches.playerExpansion || []) : [];
+  const expEnemyPatches = hasExpansion('enemy') ? (mineralPatches.enemyExpansion || []) : [];
+  const allPatches = [...mineralPatches.player, ...mineralPatches.enemy, ...expPlayerPatches, ...expEnemyPatches];
   for (const p of allPatches) {
     if (p.minerals <= 0) {
       // Depleted
@@ -3557,11 +3628,12 @@ function handleInput(x, y) {
           playerGas -= gasCost;
           let bx, baseY;
           if (bdef.gasBuilding) {
-            // Find next geyser without a refinery
-            const playerGasCount = playerBuildings.filter(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding).length;
-            const gIdx = Math.min(playerGasCount, gasGeysers.player.length - 1);
-            bx = gasGeysers.player[gIdx].x;
-            baseY = gasGeysers.player[gIdx].y;
+            // Find next geyser without a refinery (skip expansion geysers if no expansion)
+            const availGeysers = gasGeysers.player.filter(g => !g.expansion || hasExpansion('player'));
+            const geyser = availGeysers.find(g => !hasRefineryOnGeyser(g, 'player'));
+            if (!geyser) return; // no available geysers
+            bx = geyser.x;
+            baseY = geyser.y;
           } else if (bdef.isExpansion) {
             // Place expansion near contested minerals on player side
             bx = ARENA_W / 2;
