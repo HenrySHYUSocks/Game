@@ -3511,7 +3511,7 @@ function drawProductionPanel() {
     }
 
     // ONE set of unit buttons for this building type
-    const producible = bdef.unlocks || (btype === '_base' ? [WORKER_TYPE[playerFaction]] : []);
+    const producible = (bdef.unlocks && bdef.unlocks.length > 0) ? bdef.unlocks : (btype === '_base' ? [WORKER_TYPE[playerFaction]] : []);
     for (const utype of producible) {
       if (y > VIEWPORT_H + 10) break;
       if (y > -BTN_H - 5) {
@@ -3836,7 +3836,7 @@ function getPanelButtons() {
     if (totalQueued > 0) y += 14;
 
     // ONE set of unit buttons (no btn.building — uses getBuildingForUnit)
-    const producible = bdef.unlocks || (btype === '_base' ? [WORKER_TYPE[playerFaction]] : []);
+    const producible = (bdef.unlocks && bdef.unlocks.length > 0) ? bdef.unlocks : (btype === '_base' ? [WORKER_TYPE[playerFaction]] : []);
     for (const utype of producible) {
       if (y > VIEWPORT_H + 10) break;
       buttons.push({ type: utype, x: px + 4, y, isBuilding: false });
