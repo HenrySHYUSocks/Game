@@ -214,21 +214,21 @@ let forceFields = [];
 function makeMineralPatches() {
   return {
     player: [
-      { x: 50,  y: GAME_H - 100, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2, y: GAME_H - 95, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W - 50, y: GAME_H - 100, minerals: 1500, maxMinerals: 1500 },
+      { x: 50,  y: GAME_H - 100, minerals: 5000, maxMinerals: 5000 },
+      { x: ARENA_W/2, y: GAME_H - 95, minerals: 5000, maxMinerals: 5000 },
+      { x: ARENA_W - 50, y: GAME_H - 100, minerals: 5000, maxMinerals: 5000 },
     ],
     enemy: [
-      { x: 50,  y: 100, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2, y: 95, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W - 50, y: 100, minerals: 1500, maxMinerals: 1500 },
+      { x: 50,  y: 100, minerals: 5000, maxMinerals: 5000 },
+      { x: ARENA_W/2, y: 95, minerals: 5000, maxMinerals: 5000 },
+      { x: ARENA_W - 50, y: 100, minerals: 5000, maxMinerals: 5000 },
     ]
   };
 }
 function makeGasGeysers() {
   return {
-    player: { x: ARENA_W - 40, y: GAME_H - 65, gas: 2500, maxGas: 2500 },
-    enemy: { x: ARENA_W - 40, y: 65, gas: 2500, maxGas: 2500 },
+    player: { x: ARENA_W - 40, y: GAME_H - 65, gas: 5000, maxGas: 5000 },
+    enemy: { x: ARENA_W - 40, y: 65, gas: 5000, maxGas: 5000 },
   };
 }
 let mineralPatches;
@@ -284,9 +284,9 @@ const UNIT_DEFS = {
   medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, color:'#aaddff', name:'Medivac', healer:true, healAmt:30, buildTime:5, isAir:true },
   battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, color:'#3366aa', name:'Battlecruiser', splash:20, buildTime:10, isAir:true },
   // PROTOSS
-  zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:450, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
-  stalker:      { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
-  sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:120, buildTime:3 },
+  zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:420, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
+  stalker:      { faction:'protoss', cost:115, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
+  sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:100, buildTime:3 },
   hightemplar:  { faction:'protoss', cost:200, gasCost:150, supply:3, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:50, buildTime:6 },
   immortal:     { faction:'protoss', cost:175, gasCost:100, supply:3, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:5 },
   probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
@@ -294,7 +294,7 @@ const UNIT_DEFS = {
   voidray:      { faction:'protoss', cost:250, gasCost:150, supply:3, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, color:'#ffdd44', name:'Void Ray', buildTime:7, isAir:true },
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:10, isAir:true },
   // ZERG
-  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:170, dmg:25, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
+  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:170, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
   roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:500, dmg:35, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
   hydralisk:    { faction:'zerg', cost:125, gasCost:25,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:4 },
   baneling:     { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:3 },
@@ -308,8 +308,8 @@ const UNIT_DEFS = {
 // Worker type per faction
 const WORKER_TYPE = { terran:'scv', protoss:'probe', zerg:'drone' };
 
-// ---- Stance System ----
-let playerStance = 'attack'; // 'attack' or 'defend'
+// ---- Rally Point System ----
+let playerRallyY = null; // null = hold at base, set by clicking map
 let enemyStance = 'attack';
 
 // ---- Units ----
@@ -459,7 +459,7 @@ function startGame(faction) {
   enemySupply = 0;
   enemySupplyMax = 10;
   gameTime = 0;
-  playerStance = 'attack';
+  playerRallyY = GAME_H - 250; // start holding near base
   enemyStance = 'attack';
   aiTimer = 0;
   cameraY = GAME_H - VIEWPORT_H; // Start viewing player base
@@ -496,9 +496,9 @@ function findNearestPatch(unit) {
 
 function findTarget(unit) {
   const isPlayer = unit.team === 'player';
-  const stance = isPlayer ? playerStance : enemyStance;
-  // In defend mode, only engage enemies within a short leash range
-  const maxRange = (!unit.worker && stance === 'defend') ? 150 : Infinity;
+  // Player units near rally point use limited engagement range; enemy AI always full range
+  const nearRally = isPlayer && playerRallyY !== null && Math.abs(unit.y - playerRallyY) < 80;
+  const maxRange = (!unit.worker && nearRally) ? 200 : Infinity;
   let best = null;
   let bestDist = Infinity;
 
@@ -520,15 +520,13 @@ function findTarget(unit) {
     return best;
   }
 
-  // In defend mode, don't target towers (stay home)
-  if (stance !== 'defend') {
-    const enemyTowers = isPlayer ? towers.enemy : towers.player;
-    for (const key of ['left', 'right', 'base']) {
-      const t = enemyTowers[key];
-      if (t.hp <= 0) continue;
-      const d = dist(unit, t);
-      if (d < bestDist) { bestDist = d; best = t; }
-    }
+  // Target towers/base when in combat range
+  const enemyTowers = isPlayer ? towers.enemy : towers.player;
+  for (const key of ['left', 'right', 'base']) {
+    const t = enemyTowers[key];
+    if (t.hp <= 0) continue;
+    const d = dist(unit, t);
+    if (d < bestDist && d < maxRange) { bestDist = d; best = t; }
   }
 
   return best;
@@ -731,11 +729,19 @@ function canAffordUnit(defName, team) {
 function updateGame(dt) {
   gameTime += dt;
 
-  // Gas income
+  // Gas income (depletes from geyser)
   const playerHasRefinery = playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding && b.built);
   const enemyHasRefinery = enemyBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding && b.built);
-  if (playerHasRefinery) playerGas = Math.min(9999, playerGas + GAS_INCOME_RATE * dt);
-  if (enemyHasRefinery) enemyGas = Math.min(9999, enemyGas + GAS_INCOME_RATE * dt);
+  if (playerHasRefinery && gasGeysers.player.gas > 0) {
+    const mined = Math.min(GAS_INCOME_RATE * dt, gasGeysers.player.gas);
+    gasGeysers.player.gas -= mined;
+    playerGas = Math.min(9999, playerGas + mined);
+  }
+  if (enemyHasRefinery && gasGeysers.enemy.gas > 0) {
+    const mined = Math.min(GAS_INCOME_RATE * dt, gasGeysers.enemy.gas);
+    gasGeysers.enemy.gas -= mined;
+    enemyGas = Math.min(9999, enemyGas + mined);
+  }
 
   // Update per-building production queues
   updateAllBuildingQueues(playerBuildings, 'player', dt);
@@ -871,12 +877,11 @@ function updateGame(dt) {
       }
     } else {
       const isPlayer = unit.team === 'player';
-      const stance = isPlayer ? playerStance : enemyStance;
       let targetY;
-      if (stance === 'defend') {
-        targetY = isPlayer ? GAME_H - 250 : 250;
+      if (isPlayer) {
+        targetY = playerRallyY !== null ? playerRallyY : GAME_H - 250;
       } else {
-        targetY = isPlayer ? 90 : GAME_H - 90;
+        targetY = enemyStance === 'defend' ? 250 : GAME_H - 90;
       }
       if (Math.abs(unit.y - targetY) > 5 && effectiveSpeed > 0) {
         // Check force field collision
@@ -1019,7 +1024,7 @@ let aiTimer = 0;
 function updateEnemyAI(dt) {
   aiTimer -= dt;
   if (aiTimer > 0) return;
-  aiTimer = 2.0 + Math.random() * 2.0;
+  aiTimer = 1.0 + Math.random() * 1.5;
 
   const workerCount = units.filter(u => !u.dead && u.team === 'enemy' && u.worker).length;
   const workerType = WORKER_TYPE[enemyFaction];
@@ -1045,7 +1050,7 @@ function updateEnemyAI(dt) {
   // Phase 0.5: Build gas refinery early
   const gasType = FACTION_GAS[enemyFaction];
   const hasGas = enemyBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding);
-  if (!hasGas && gameTime > 30 && enemyMinerals >= BUILDING_DEFS[gasType].cost) {
+  if (!hasGas && gameTime > 15 && enemyMinerals >= BUILDING_DEFS[gasType].cost) {
     enemyMinerals -= BUILDING_DEFS[gasType].cost;
     enemyBuildings.push({
       type: gasType, x: gasGeysers.enemy.x, y: gasGeysers.enemy.y,
@@ -1061,8 +1066,11 @@ function updateEnemyAI(dt) {
     return;
   }
 
-  // Phase 2: Build production buildings
-  const availBuildings = getAvailableBuildings('enemy');
+  // Phase 2: Build production buildings (skip supply/gas — handled above)
+  const availBuildings = getAvailableBuildings('enemy').filter(bt => {
+    const bd = BUILDING_DEFS[bt];
+    return !bd.supplyCap && !bd.gasBuilding;
+  });
   if (availBuildings.length > 0) {
     const btype = availBuildings[0];
     const bdef = BUILDING_DEFS[btype];
@@ -1183,6 +1191,30 @@ function render() {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+
+  // Rally point indicator
+  if (playerRallyY !== null && isVisible(playerRallyY)) {
+    const rpPulse = 0.5 + 0.5 * Math.sin(gameTime * 4);
+    ctx.strokeStyle = `rgba(0, 255, 100, ${0.4 + rpPulse * 0.4})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(10, playerRallyY);
+    ctx.lineTo(ARENA_W - 10, playerRallyY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Arrow marker
+    ctx.fillStyle = `rgba(0, 255, 100, ${0.6 + rpPulse * 0.3})`;
+    ctx.beginPath();
+    ctx.moveTo(ARENA_W / 2 - 8, playerRallyY - 6);
+    ctx.lineTo(ARENA_W / 2 + 8, playerRallyY - 6);
+    ctx.lineTo(ARENA_W / 2, playerRallyY + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.font = 'bold 7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('RALLY', ARENA_W / 2, playerRallyY - 10);
+  }
 
   ctx.restore(); // end world-space
 
@@ -2859,31 +2891,12 @@ function drawProductionPanel() {
 
   let y = 32 - panelScroll;
 
-  // Stance buttons
-  const stanceY = y;
-  if (stanceY > -20 && stanceY < VIEWPORT_H) {
-    const halfW = (PANEL_W - 12) / 2;
-    ctx.fillStyle = playerStance === 'attack' ? '#aa3333' : '#332222';
-    roundRect(ctx, px + 4, stanceY, halfW, 16, 3, true, false);
-    ctx.strokeStyle = playerStance === 'attack' ? '#ff4444' : '#553333';
-    ctx.lineWidth = 1;
-    roundRect(ctx, px + 4, stanceY, halfW, 16, 3, false, true);
-    ctx.fillStyle = playerStance === 'attack' ? '#fff' : '#888';
-    ctx.font = 'bold 6px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('ATK', px + 4 + halfW/2, stanceY + 11);
-
-    ctx.fillStyle = playerStance === 'defend' ? '#3333aa' : '#222233';
-    roundRect(ctx, px + 6 + halfW, stanceY, halfW, 16, 3, true, false);
-    ctx.strokeStyle = playerStance === 'defend' ? '#4444ff' : '#333355';
-    ctx.lineWidth = 1;
-    roundRect(ctx, px + 6 + halfW, stanceY, halfW, 16, 3, false, true);
-    ctx.fillStyle = playerStance === 'defend' ? '#fff' : '#888';
-    ctx.font = 'bold 6px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('DEF', px + 6 + halfW + halfW/2, stanceY + 11);
-  }
-  y += 22;
+  // Supply display
+  ctx.fillStyle = '#ffcc44';
+  ctx.font = 'bold 7px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(Math.floor(playerSupply) + '/' + Math.floor(playerSupplyMax), px + PANEL_W/2, y + 8);
+  y += 14;
 
   // Per-building sections
   for (const b of playerBuildings) {
@@ -3146,11 +3159,8 @@ function getPanelButtons() {
   const buttons = [];
   let y = 32 - panelScroll;
 
-  // Stance buttons
-  const halfW = (PANEL_W - 12) / 2;
-  buttons.push({ type: '_stance_attack', x: px + 4, y, w: halfW, h: 16, isStance: true });
-  buttons.push({ type: '_stance_defend', x: px + 6 + halfW, y, w: halfW, h: 16, isStance: true });
-  y += 22;
+  // Supply display (no buttons)
+  y += 14;
 
   // Per-building sections
   for (const b of playerBuildings) {
@@ -3204,11 +3214,7 @@ function handleInput(x, y) {
     const bw = btn.w || BTN_W;
     const bh = btn.h || BTN_H;
     if (x >= btn.x && x <= btn.x + bw && y >= btn.y && y <= btn.y + bh) {
-      if (btn.isStance) {
-        if (btn.type === '_stance_attack') playerStance = 'attack';
-        if (btn.type === '_stance_defend') playerStance = 'defend';
-        return;
-      }
+      if (btn.isStance) return; // no longer used
       // Building construction
       if (btn.isBuilding) {
         const bdef = BUILDING_DEFS[btn.type];
@@ -3259,6 +3265,12 @@ function handleInput(x, y) {
     cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
     cameraAutoFollow = false;
     return;
+  }
+
+  // Click on arena = set army rally point (convert screen Y to world Y)
+  if (x < ARENA_W) {
+    const worldY = y + cameraY;
+    playerRallyY = Math.max(30, Math.min(GAME_H - 30, worldY));
   }
 }
 

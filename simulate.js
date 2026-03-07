@@ -65,16 +65,16 @@ const UNIT_DEFS = {
   viking:       { faction:'terran', cost:150, gasCost:75,  supply:2, hp:280, dmg:40, speed:1.3, range:120, atkSpeed:0.9, count:1, r:10, name:'Viking', buildTime:5, isAir:true },
   medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, name:'Medivac', healer:true, healAmt:30, buildTime:5, isAir:true },
   battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, name:'Battlecruiser', splash:20, buildTime:10, isAir:true },
-  zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:450, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, name:'Zealot', buildTime:3 },
-  stalker:      { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  name:'Stalker', buildTime:4 },
-  sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  name:'Sentry', shield:true, shieldAmt:120, buildTime:3 },
+  zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:420, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, name:'Zealot', buildTime:3 },
+  stalker:      { faction:'protoss', cost:115, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  name:'Stalker', buildTime:4 },
+  sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  name:'Sentry', shield:true, shieldAmt:100, buildTime:3 },
   hightemplar:  { faction:'protoss', cost:200, gasCost:150, supply:3, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  name:'High Templar', splash:50, buildTime:6 },
   immortal:     { faction:'protoss', cost:175, gasCost:100, supply:3, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, name:'Immortal', buildTime:5 },
   probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
   phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:250, dmg:35, speed:1.6, range:110, atkSpeed:0.8, count:1, r:9,  name:'Phoenix', buildTime:5, isAir:true },
   voidray:      { faction:'protoss', cost:250, gasCost:150, supply:3, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, name:'Void Ray', buildTime:7, isAir:true },
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, name:'Carrier', buildTime:10, isAir:true },
-  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:170, dmg:25, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  name:'Zergling', buildTime:2 },
+  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:170, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  name:'Zergling', buildTime:2 },
   roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:500, dmg:35, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, name:'Roach', buildTime:3 },
   hydralisk:    { faction:'zerg', cost:125, gasCost:25,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  name:'Hydralisk', buildTime:4 },
   baneling:     { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  name:'Baneling', suicide:true, splash:35, buildTime:3 },
@@ -125,20 +125,20 @@ class GameSim {
 
     this.mineralPatches = {
       player: [
-        { x: 50,  y: GAME_H - 100, minerals: 1500, maxMinerals: 1500 },
-        { x: ARENA_W/2, y: GAME_H - 95, minerals: 1500, maxMinerals: 1500 },
-        { x: ARENA_W - 50, y: GAME_H - 100, minerals: 1500, maxMinerals: 1500 },
+        { x: 50,  y: GAME_H - 100, minerals: 5000, maxMinerals: 5000 },
+        { x: ARENA_W/2, y: GAME_H - 95, minerals: 5000, maxMinerals: 5000 },
+        { x: ARENA_W - 50, y: GAME_H - 100, minerals: 5000, maxMinerals: 5000 },
       ],
       enemy: [
-        { x: 50,  y: 100, minerals: 1500, maxMinerals: 1500 },
-        { x: ARENA_W/2, y: 95, minerals: 1500, maxMinerals: 1500 },
-        { x: ARENA_W - 50, y: 100, minerals: 1500, maxMinerals: 1500 },
+        { x: 50,  y: 100, minerals: 5000, maxMinerals: 5000 },
+        { x: ARENA_W/2, y: 95, minerals: 5000, maxMinerals: 5000 },
+        { x: ARENA_W - 50, y: 100, minerals: 5000, maxMinerals: 5000 },
       ]
     };
 
     this.gasGeysers = {
-      player: { x: ARENA_W - 40, y: GAME_H - 65, gas: 2500, maxGas: 2500 },
-      enemy: { x: ARENA_W - 40, y: 65, gas: 2500, maxGas: 2500 },
+      player: { x: ARENA_W - 40, y: GAME_H - 65, gas: 5000, maxGas: 5000 },
+      enemy: { x: ARENA_W - 40, y: 65, gas: 5000, maxGas: 5000 },
     };
 
     this.playerBuildings = [{ type: '_base', x: ARENA_W/2, y: GAME_H - 90, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
@@ -465,7 +465,7 @@ class GameSim {
     const gasType = FACTION_GAS[faction];
     const hasGas = buildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding);
     const geyser = isPlayer ? this.gasGeysers.player : this.gasGeysers.enemy;
-    if (!hasGas && this.gameTime > 30 && minerals() >= BUILDING_DEFS[gasType].cost) {
+    if (!hasGas && this.gameTime > 15 && minerals() >= BUILDING_DEFS[gasType].cost) {
       spendMinerals(BUILDING_DEFS[gasType].cost);
       buildings.push({ type: gasType, x: geyser.x, y: geyser.y, hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: BUILDING_DEFS[gasType].buildTime, queue: [] });
       return;
@@ -480,7 +480,7 @@ class GameSim {
 
     // Production buildings
     const availBuildings = this.getAvailableBuildings(team);
-    const prodBuildings = availBuildings.filter(b => !BUILDING_DEFS[b].supplyCap);
+    const prodBuildings = availBuildings.filter(b => !BUILDING_DEFS[b].supplyCap && !BUILDING_DEFS[b].gasBuilding);
     if (prodBuildings.length > 0) {
       const btype = prodBuildings[0];
       const bdef = BUILDING_DEFS[btype];
@@ -523,11 +523,19 @@ class GameSim {
   tick(dt) {
     this.gameTime += dt;
 
-    // Gas income
+    // Gas income (depletes from geyser)
     const playerHasRefinery = this.playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding && b.built);
     const enemyHasRefinery = this.enemyBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding && b.built);
-    if (playerHasRefinery) this.playerGas = Math.min(9999, this.playerGas + GAS_INCOME_RATE * dt);
-    if (enemyHasRefinery) this.enemyGas = Math.min(9999, this.enemyGas + GAS_INCOME_RATE * dt);
+    if (playerHasRefinery && this.gasGeysers.player.gas > 0) {
+      const mined = Math.min(GAS_INCOME_RATE * dt, this.gasGeysers.player.gas);
+      this.gasGeysers.player.gas -= mined;
+      this.playerGas = Math.min(9999, this.playerGas + mined);
+    }
+    if (enemyHasRefinery && this.gasGeysers.enemy.gas > 0) {
+      const mined = Math.min(GAS_INCOME_RATE * dt, this.gasGeysers.enemy.gas);
+      this.gasGeysers.enemy.gas -= mined;
+      this.enemyGas = Math.min(9999, this.enemyGas + mined);
+    }
 
     // Building queues
     for (const team of ['player', 'enemy']) {
