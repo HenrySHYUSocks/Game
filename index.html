@@ -119,10 +119,11 @@ const ctx = canvas.getContext('2d');
 // ---- Layout ----
 let W, H, SCALE;
 const GAME_W = 400;
-const GAME_H = 700;
+const GAME_H = 1400;
+const VIEWPORT_H = 700;
 
 function resize() {
-  const ratio = GAME_W / GAME_H;
+  const ratio = GAME_W / VIEWPORT_H;
   if (window.innerWidth / window.innerHeight > ratio) {
     H = window.innerHeight;
     W = H * ratio;
@@ -143,6 +144,12 @@ let gameTime = 0;
 let playerFaction = 'terran';
 let enemyFaction = 'zerg';
 
+// ---- Camera ----
+let cameraY = 0;
+let cameraDragging = false;
+let cameraDragLastY = 0;
+let cameraAutoFollow = true;
+
 const FACTIONS = ['terran', 'protoss', 'zerg'];
 const FACTION_COLORS = {
   terran: { primary: '#4488ff', dark: '#223366', light: '#66aaff' },
@@ -155,7 +162,7 @@ const PANEL_W = 90;
 const ARENA_W = GAME_W - PANEL_W;
 
 // ---- Arena Layout ----
-const RIVER_Y = GAME_H * 0.43;
+const RIVER_Y = GAME_H / 2; // 700 — center of 1400
 const RIVER_H = 18;
 const BRIDGE_W = 70;
 const LANE_X = [ARENA_W * 0.30, ARENA_W * 0.70];
@@ -167,14 +174,14 @@ const BASE_R = 28;
 function makeTowers() {
   return {
     player: {
-      left:  { x: LANE_X[0], y: GAME_H - 100, hp: 1200, maxHp: 1200, r: TOWER_R },
-      right: { x: LANE_X[1], y: GAME_H - 100, hp: 1200, maxHp: 1200, r: TOWER_R },
-      base:  { x: ARENA_W / 2, y: GAME_H - 45,  hp: 2400, maxHp: 2400, r: BASE_R }
+      left:  { x: LANE_X[0], y: GAME_H - 200, hp: 1200, maxHp: 1200, r: TOWER_R },
+      right: { x: LANE_X[1], y: GAME_H - 200, hp: 1200, maxHp: 1200, r: TOWER_R },
+      base:  { x: ARENA_W / 2, y: GAME_H - 90,  hp: 2400, maxHp: 2400, r: BASE_R }
     },
     enemy: {
-      left:  { x: LANE_X[0], y: 100, hp: 1200, maxHp: 1200, r: TOWER_R },
-      right: { x: LANE_X[1], y: 100, hp: 1200, maxHp: 1200, r: TOWER_R },
-      base:  { x: ARENA_W / 2, y: 45,  hp: 2400, maxHp: 2400, r: BASE_R }
+      left:  { x: LANE_X[0], y: 200, hp: 1200, maxHp: 1200, r: TOWER_R },
+      right: { x: LANE_X[1], y: 200, hp: 1200, maxHp: 1200, r: TOWER_R },
+      base:  { x: ARENA_W / 2, y: 90,  hp: 2400, maxHp: 2400, r: BASE_R }
     }
   };
 }
@@ -186,46 +193,79 @@ let playerMinerals = 50;
 let enemyMinerals = 50;
 const MAX_MINERALS = 9999;
 const MINERAL_PER_TRIP = 5;
-const MINE_TIME = 1.5; // seconds to mine at patch
+const MINE_TIME = 1.5;
 const CARRY_AMOUNT = 5;
 
-// 3 mineral patches per side
+// ---- Gas System ----
+let playerGas = 0;
+let enemyGas = 0;
+const GAS_INCOME_RATE = 5; // per second when refinery built
+
+// ---- Supply System ----
+let playerSupply = 0;
+let playerSupplyMax = 10;
+let enemySupply = 0;
+let enemySupplyMax = 10;
+
+// ---- Force Fields ----
+let forceFields = [];
+
+// 3 mineral patches per side + 1 gas geyser per side
 function makeMineralPatches() {
   return {
     player: [
-      { x: 50,  y: GAME_H - 55, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2, y: GAME_H - 48, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W - 50, y: GAME_H - 55, minerals: 1500, maxMinerals: 1500 },
+      { x: 50,  y: GAME_H - 100, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2, y: GAME_H - 95, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W - 50, y: GAME_H - 100, minerals: 1500, maxMinerals: 1500 },
     ],
     enemy: [
-      { x: 50,  y: 55, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W/2, y: 48, minerals: 1500, maxMinerals: 1500 },
-      { x: ARENA_W - 50, y: 55, minerals: 1500, maxMinerals: 1500 },
+      { x: 50,  y: 100, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W/2, y: 95, minerals: 1500, maxMinerals: 1500 },
+      { x: ARENA_W - 50, y: 100, minerals: 1500, maxMinerals: 1500 },
     ]
   };
 }
+function makeGasGeysers() {
+  return {
+    player: { x: ARENA_W - 40, y: GAME_H - 65, gas: 2500, maxGas: 2500 },
+    enemy: { x: ARENA_W - 40, y: 65, gas: 2500, maxGas: 2500 },
+  };
+}
 let mineralPatches;
+let gasGeysers;
 
 // ---- Building System ----
-// Buildings are required to unlock unit types
 const BUILDING_DEFS = {
-  // Base (implicit, not buildable — produces workers)
-  _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R },
+  _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:10 },
+  // Supply buildings
+  supplydepot: { faction:'terran', cost:100, buildTime:5, name:'Depot', unlocks:[], r:14, supplyCap:10 },
+  pylon:       { faction:'protoss', cost:100, buildTime:5, name:'Pylon', unlocks:[], r:14, supplyCap:10 },
+  overlord:    { faction:'zerg', cost:100, buildTime:5, name:'Overlord', unlocks:[], r:14, supplyCap:10 },
+  // Gas buildings
+  refinery:    { faction:'terran', cost:75, buildTime:5, name:'Refinery', unlocks:[], r:14, gasBuilding:true },
+  assimilator: { faction:'protoss', cost:75, buildTime:5, name:'Assimilator', unlocks:[], r:14, gasBuilding:true },
+  extractor:   { faction:'zerg', cost:75, buildTime:5, name:'Extractor', unlocks:[], r:14, gasBuilding:true },
   // TERRAN
   barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','medic'], r:18 },
   factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','ghost'], requires:'barracks', r:18 },
+  starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','battlecruiser'], requires:'factory', r:18 },
   // PROTOSS
   gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','sentry'], r:18 },
   robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robo Bay', unlocks:['immortal','hightemplar'], requires:'gateway', r:18 },
+  fleetbeacon: { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Fleet Beacon', unlocks:['phoenix','voidray','carrier'], requires:'robo', r:18 },
   // ZERG
   pool:      { faction:'zerg', cost:150, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','baneling'], r:18 },
   den:       { faction:'zerg', cost:200, buildTime:12, name:'Hydra Den', unlocks:['hydralisk','ultralisk'], requires:'pool', r:18 },
+  spire:     { faction:'zerg', cost:150, gasCost:100, buildTime:10, name:'Spire', unlocks:['mutalisk','corruptor','broodlord'], requires:'den', r:18 },
 };
 
+const FACTION_SUPPLY = { terran:'supplydepot', protoss:'pylon', zerg:'overlord' };
+const FACTION_GAS = { terran:'refinery', protoss:'assimilator', zerg:'extractor' };
+
 const FACTION_BUILDINGS = {
-  terran: ['barracks','factory'],
-  protoss: ['gateway','robo'],
-  zerg: ['pool','den'],
+  terran: ['supplydepot','refinery','barracks','factory','starport'],
+  protoss: ['pylon','assimilator','gateway','robo','fleetbeacon'],
+  zerg: ['overlord','extractor','pool','den','spire'],
 };
 
 let playerBuildings = []; // { type, x, y, hp, maxHp, built, buildProgress, buildTime }
@@ -234,26 +274,35 @@ let enemyBuildings = [];
 // ---- Unit Definitions ----
 const UNIT_DEFS = {
   // TERRAN
-  marine:       { faction:'terran', cost:50,  hp:280, dmg:35, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine', buildTime:3 },
-  marauder:     { faction:'terran', cost:100, hp:500, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, color:'#336699', name:'Marauder', buildTime:4 },
-  medic:        { faction:'terran', cost:75,  hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:3 },
-  siegetank:    { faction:'terran', cost:200, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:6 },
-  ghost:        { faction:'terran', cost:175, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost', buildTime:5 },
-  scv:          { faction:'terran', cost:50,  hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3, buildTime:2 },
+  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:280, dmg:35, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine', buildTime:3 },
+  marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:500, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, color:'#336699', name:'Marauder', buildTime:4 },
+  medic:        { faction:'terran', cost:75,  gasCost:25,  supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:3 },
+  siegetank:    { faction:'terran', cost:200, gasCost:100, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:6 },
+  ghost:        { faction:'terran', cost:175, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost', buildTime:5 },
+  scv:          { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3, buildTime:2 },
+  viking:       { faction:'terran', cost:150, gasCost:75,  supply:2, hp:280, dmg:40, speed:1.3, range:120, atkSpeed:0.9, count:1, r:10, color:'#5599ee', name:'Viking', buildTime:5, isAir:true },
+  medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, color:'#aaddff', name:'Medivac', healer:true, healAmt:30, buildTime:5, isAir:true },
+  battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, color:'#3366aa', name:'Battlecruiser', splash:20, buildTime:10, isAir:true },
   // PROTOSS
-  zealot:       { faction:'protoss', cost:75,  hp:400, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
-  stalker:      { faction:'protoss', cost:125, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
-  sentry:       { faction:'protoss', cost:100, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:100, buildTime:3 },
-  hightemplar:  { faction:'protoss', cost:200, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:50, buildTime:6 },
-  immortal:     { faction:'protoss', cost:175, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:5 },
-  probe:        { faction:'protoss', cost:50,  hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
+  zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:400, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
+  stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
+  sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:100, buildTime:3 },
+  hightemplar:  { faction:'protoss', cost:200, gasCost:150, supply:3, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:50, buildTime:6 },
+  immortal:     { faction:'protoss', cost:175, gasCost:100, supply:3, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:5 },
+  probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
+  phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:250, dmg:35, speed:1.6, range:110, atkSpeed:0.8, count:1, r:9,  color:'#eebb22', name:'Phoenix', buildTime:5, isAir:true },
+  voidray:      { faction:'protoss', cost:250, gasCost:150, supply:3, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, color:'#ffdd44', name:'Void Ray', buildTime:7, isAir:true },
+  carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:10, isAir:true },
   // ZERG
-  zergling:     { faction:'zerg', cost:50,  hp:150, dmg:25, speed:2.0, range:18,  atkSpeed:0.5, count:6, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
-  roach:        { faction:'zerg', cost:75,  hp:450, dmg:30, speed:1.0, range:80,  atkSpeed:0.9, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
-  hydralisk:    { faction:'zerg', cost:125, hp:300, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:4 },
-  baneling:     { faction:'zerg', cost:75,  hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:3 },
-  ultralisk:    { faction:'zerg', cost:300, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25, buildTime:8 },
-  drone:        { faction:'zerg', cost:50,  hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3, buildTime:2 },
+  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:150, dmg:25, speed:2.0, range:18,  atkSpeed:0.5, count:6, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
+  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:450, dmg:30, speed:1.0, range:80,  atkSpeed:0.9, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
+  hydralisk:    { faction:'zerg', cost:125, gasCost:25,  supply:2, hp:300, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:4 },
+  baneling:     { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:3 },
+  ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25, buildTime:8 },
+  drone:        { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3, buildTime:2 },
+  mutalisk:     { faction:'zerg', cost:100, gasCost:100, supply:2, hp:200, dmg:30, speed:1.8, range:90,  atkSpeed:0.7, count:1, r:9,  color:'#ee5555', name:'Mutalisk', splash:15, buildTime:5, isAir:true },
+  corruptor:    { faction:'zerg', cost:150, gasCost:100, supply:2, hp:350, dmg:50, speed:1.1, range:120, atkSpeed:1.0, count:1, r:11, color:'#cc3333', name:'Corruptor', buildTime:5, isAir:true },
+  broodlord:    { faction:'zerg', cost:300, gasCost:250, supply:4, hp:500, dmg:60, speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#aa2222', name:'Brood Lord', splash:25, buildTime:8, isAir:true },
 };
 
 // Worker type per faction
@@ -291,7 +340,12 @@ function getAvailableBuildings(team) {
   const available = [];
   for (const btype of all) {
     const bdef = BUILDING_DEFS[btype];
-    // Check if already have one (built or building)
+    // Supply buildings can be built multiple times
+    if (bdef.supplyCap) {
+      available.push(btype);
+      continue;
+    }
+    // Gas/other buildings: only one allowed
     const exists = buildings.some(b => b.type === btype);
     if (exists) continue;
     // Check prerequisite
@@ -308,6 +362,11 @@ function getAvailableBuildings(team) {
 function spawnUnit(defName, x, y, team) {
   const def = UNIT_DEFS[defName];
   const spreadR = def.count > 1 ? 15 : 0;
+  // Update supply
+  const totalSupply = (def.supply || 1) * def.count;
+  if (team === 'player') playerSupply += totalSupply;
+  else enemySupply += totalSupply;
+
   for (let i = 0; i < def.count; i++) {
     const ox = (Math.random() - 0.5) * spreadR * 2;
     const oy = (Math.random() - 0.5) * spreadR * 2;
@@ -335,13 +394,25 @@ function spawnUnit(defName, x, y, team) {
       splash: def.splash || 0,
       worker: def.worker || false,
       mineRate: def.mineRate || 0,
+      isAir: def.isAir || false,
       target: null,
       animFrame: 0,
       // Worker mining state
-      miningState: 'idle', // idle, toMineral, mining, toBase
+      miningState: 'idle',
       miningTimer: 0,
       assignedPatch: null,
       carrying: 0,
+      // Ability state
+      siegeMode: false,
+      siegeTimer: 0,
+      chargeTimer: 0,
+      blinkTimer: 0,
+      empTimer: 0,
+      forcefieldTimer: 0,
+      voidrayDmgStage: 0,
+      voidrayAttackTime: 0,
+      lastTarget: null,
+      supply: def.supply || 1,
     });
   }
 }
@@ -371,25 +442,35 @@ function startGame(faction) {
 
   towers = makeTowers();
   mineralPatches = makeMineralPatches();
+  gasGeysers = makeGasGeysers();
   units = [];
   particles = [];
   projectiles = [];
-  // Each side gets an implicit "base" building that produces workers
-  playerBuildings = [{ type: '_base', x: ARENA_W/2, y: GAME_H - 45, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
-  enemyBuildings = [{ type: '_base', x: ARENA_W/2, y: 45, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
+  forceFields = [];
+  // Each side gets an implicit "base" building
+  playerBuildings = [{ type: '_base', x: ARENA_W/2, y: GAME_H - 90, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
+  enemyBuildings = [{ type: '_base', x: ARENA_W/2, y: 90, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
   playerMinerals = 50;
   enemyMinerals = 50;
+  playerGas = 0;
+  enemyGas = 0;
+  playerSupply = 0;
+  playerSupplyMax = 10;
+  enemySupply = 0;
+  enemySupplyMax = 10;
   gameTime = 0;
   playerStance = 'attack';
   enemyStance = 'attack';
   aiTimer = 0;
+  cameraY = GAME_H - VIEWPORT_H; // Start viewing player base
+  cameraAutoFollow = true;
 
   // Start with 4 workers each
   const pw = WORKER_TYPE[playerFaction];
   const ew = WORKER_TYPE[enemyFaction];
   for (let i = 0; i < 4; i++) {
-    spawnUnit(pw, ARENA_W/2 + (Math.random()-0.5)*30, GAME_H - 55 + (Math.random()-0.5)*15, 'player');
-    spawnUnit(ew, ARENA_W/2 + (Math.random()-0.5)*30, 55 + (Math.random()-0.5)*15, 'enemy');
+    spawnUnit(pw, ARENA_W/2 + (Math.random()-0.5)*30, GAME_H - 110 + (Math.random()-0.5)*15, 'player');
+    spawnUnit(ew, ARENA_W/2 + (Math.random()-0.5)*30, 110 + (Math.random()-0.5)*15, 'enemy');
   }
 
   gameRunning = true;
@@ -456,7 +537,7 @@ function findTarget(unit) {
 // ---- Worker Mining Logic ----
 function updateWorker(unit, dt) {
   const baseX = ARENA_W / 2;
-  const baseY = unit.team === 'player' ? GAME_H - 45 : 45;
+  const baseY = unit.team === 'player' ? GAME_H - 90 : 90;
   const moveSpeed = unit.speed * 60;
 
   switch (unit.miningState) {
@@ -544,7 +625,7 @@ function updateAllBuildingQueues(buildings, team, dt) {
     if (item.timeLeft <= 0) {
       b.queue.shift();
       // Spawn unit near the building
-      const baseY = team === 'player' ? GAME_H - 70 : 70;
+      const baseY = team === 'player' ? GAME_H - 150 : 150;
       const lane = Math.random() < 0.5 ? 0 : 1;
       const x = LANE_X[lane] + (Math.random()-0.5)*30;
       spawnUnit(item.type, x, baseY, team);
@@ -554,28 +635,121 @@ function updateAllBuildingQueues(buildings, team, dt) {
 
 
 // ---- Update Buildings ----
-function updateBuildings(buildings, dt) {
+function updateBuildings(buildings, team, dt) {
   for (const b of buildings) {
     if (!b.built) {
       b.buildProgress += dt;
       if (b.buildProgress >= b.buildTime) {
         b.built = true;
+        // Add supply cap if supply building
+        const bdef = BUILDING_DEFS[b.type];
+        if (bdef && bdef.supplyCap) {
+          if (team === 'player') playerSupplyMax += bdef.supplyCap;
+          else enemySupplyMax += bdef.supplyCap;
+        }
       }
     }
   }
+}
+
+// ---- Unit Abilities ----
+function updateUnitAbilities(unit, dt) {
+  // Decrement cooldown timers
+  if (unit.chargeTimer > 0) unit.chargeTimer -= dt;
+  if (unit.blinkTimer > 0) unit.blinkTimer -= dt;
+  if (unit.empTimer > 0) unit.empTimer -= dt;
+  if (unit.forcefieldTimer > 0) unit.forcefieldTimer -= dt;
+
+  // Stalker blink: teleport backward when low HP
+  if (unit.type === 'stalker' && unit.hp < unit.maxHp * 0.5 && unit.blinkTimer <= 0) {
+    const blinkDir = unit.team === 'player' ? 1 : -1; // blink toward own base
+    const oldX = unit.x, oldY = unit.y;
+    unit.y += 60 * blinkDir;
+    unit.y = Math.max(30, Math.min(GAME_H - 30, unit.y));
+    unit.blinkTimer = 10;
+    spawnParticle(oldX, oldY, '#4488ff', 8);
+    spawnParticle(unit.x, unit.y, '#4488ff', 8);
+  }
+
+  // Ghost EMP: remove shields from nearby Protoss enemies
+  if (unit.type === 'ghost' && unit.empTimer <= 0) {
+    let fired = false;
+    for (const u of units) {
+      if (u.dead || u.team === unit.team) continue;
+      if (u.maxShield > 0 && u.shield > 0 && dist(unit, u) < 140) {
+        // EMP blast
+        for (const t of units) {
+          if (t.dead || t.team === unit.team) continue;
+          if (t.maxShield > 0 && dist(u, t) < 40) {
+            t.shield = 0;
+            spawnParticle(t.x, t.y, '#aaddff', 5);
+          }
+        }
+        fired = true;
+        break;
+      }
+    }
+    if (fired) unit.empTimer = 20;
+  }
+
+  // Sentry force field: drop barrier near bridge
+  if (unit.type === 'sentry' && unit.forcefieldTimer <= 0) {
+    let nearbyEnemies = 0;
+    for (const u of units) {
+      if (u.dead || u.team === unit.team || u.isAir) continue;
+      if (dist(unit, u) < 100) nearbyEnemies++;
+    }
+    if (nearbyEnemies >= 2) {
+      // Drop force field at nearest bridge
+      let bestBridge = null, bestD = Infinity;
+      for (const lx of LANE_X) {
+        const d = dist(unit, { x: lx, y: RIVER_Y });
+        if (d < bestD) { bestD = d; bestBridge = { x: lx, y: RIVER_Y }; }
+      }
+      if (bestBridge && bestD < 200) {
+        forceFields.push({ x: bestBridge.x, y: bestBridge.y, r: 20, life: 4, maxLife: 4, team: unit.team });
+        unit.forcefieldTimer = 15;
+        spawnParticle(bestBridge.x, bestBridge.y, '#44aaff', 10);
+      }
+    }
+  }
+}
+
+// ---- Supply helpers ----
+function getTeamSupply(team) { return team === 'player' ? playerSupply : enemySupply; }
+function getTeamSupplyMax(team) { return team === 'player' ? playerSupplyMax : enemySupplyMax; }
+function canAffordUnit(defName, team) {
+  const def = UNIT_DEFS[defName];
+  const minerals = team === 'player' ? playerMinerals : enemyMinerals;
+  const gas = team === 'player' ? playerGas : enemyGas;
+  const supply = getTeamSupply(team);
+  const supplyMax = getTeamSupplyMax(team);
+  return minerals >= def.cost && gas >= (def.gasCost || 0) && supply + (def.supply || 1) * def.count <= supplyMax;
 }
 
 // ---- Game Logic Update ----
 function updateGame(dt) {
   gameTime += dt;
 
+  // Gas income
+  const playerHasRefinery = playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding && b.built);
+  const enemyHasRefinery = enemyBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding && b.built);
+  if (playerHasRefinery) playerGas = Math.min(9999, playerGas + GAS_INCOME_RATE * dt);
+  if (enemyHasRefinery) enemyGas = Math.min(9999, enemyGas + GAS_INCOME_RATE * dt);
+
   // Update per-building production queues
   updateAllBuildingQueues(playerBuildings, 'player', dt);
   updateAllBuildingQueues(enemyBuildings, 'enemy', dt);
 
-  // Update buildings
-  updateBuildings(playerBuildings, dt);
-  updateBuildings(enemyBuildings, dt);
+  // Update buildings (supply cap on complete)
+  updateBuildings(playerBuildings, 'player', dt);
+  updateBuildings(enemyBuildings, 'enemy', dt);
+
+  // Update force fields
+  for (const ff of forceFields) {
+    ff.life -= dt;
+  }
+  forceFields = forceFields.filter(ff => ff.life > 0);
 
   // AI
   updateEnemyAI(dt);
@@ -591,63 +765,137 @@ function updateGame(dt) {
       continue;
     }
 
+    // ---- Unit Abilities ----
+    updateUnitAbilities(unit, dt);
+
     const target = findTarget(unit);
     unit.target = target;
+
+    // Siege tank: can't move in siege mode
+    const effectiveSpeed = unit.siegeMode ? 0 : unit.speed;
+    // Ultralisk frenzy: +50% attack speed below 30% HP
+    let effectiveAtkSpeed = unit.atkSpeed;
+    if (unit.type === 'ultralisk' && unit.hp < unit.maxHp * 0.3) {
+      effectiveAtkSpeed *= 0.67;
+    }
+    // Void Ray: damage ramp
+    let effectiveDmg = unit.dmg;
+    if (unit.type === 'voidray') {
+      if (target && target === unit.lastTarget) {
+        unit.voidrayAttackTime += dt;
+        if (unit.voidrayAttackTime > 4) effectiveDmg = 100;
+        else if (unit.voidrayAttackTime > 2) effectiveDmg = 75;
+      } else {
+        unit.voidrayAttackTime = 0;
+      }
+      unit.lastTarget = target;
+    }
+    // Siege mode stat overrides
+    let effectiveRange = unit.range;
+    let effectiveSplash = unit.splash;
+    if (unit.siegeMode) {
+      effectiveRange = 220;
+      effectiveDmg = 180;
+      effectiveSplash = 40;
+    }
 
     if (target) {
       const d = dist(unit, target);
       const targetR = target.r || 0;
 
-      if (d - targetR <= unit.range) {
+      if (d - targetR <= effectiveRange) {
         unit.atkTimer -= dt;
+        // Siege tank: enter siege mode when stationary and in range
+        if (unit.type === 'siegetank' && !unit.siegeMode) {
+          unit.siegeTimer += dt;
+          if (unit.siegeTimer > 2) { unit.siegeMode = true; unit.siegeTimer = 0; }
+        }
+
         if (unit.atkTimer <= 0) {
-          unit.atkTimer = unit.atkSpeed;
+          unit.atkTimer = effectiveAtkSpeed;
 
           if (unit.healer) {
             target.hp = Math.min(target.maxHp, target.hp + unit.healAmt);
             spawnParticle(target.x, target.y, '#88ff88', 8);
           } else if (unit.suicide) {
-            if (unit.splash > 0) {
-              dealSplash(unit.x, unit.y, unit.splash, unit.dmg, unit.team);
+            if (effectiveSplash > 0) {
+              dealSplash(unit.x, unit.y, effectiveSplash, effectiveDmg, unit.team);
             } else {
-              dealDamage(target, unit.dmg);
+              dealDamage(target, effectiveDmg);
             }
             spawnParticle(unit.x, unit.y, '#44ff44', 20);
             unit.hp = 0;
             unit.dead = true;
           } else {
-            if (unit.range > 40) {
-              projectiles.push({ x: unit.x, y: unit.y, tx: target.x, ty: target.y, dmg: unit.dmg, team: unit.team, speed: 250, color: unit.color, splash: unit.splash, target });
+            if (effectiveRange > 40) {
+              projectiles.push({ x: unit.x, y: unit.y, tx: target.x, ty: target.y, dmg: effectiveDmg, team: unit.team, speed: 250, color: unit.color, splash: effectiveSplash, target });
             } else {
-              if (unit.splash > 0) {
-                dealSplash(target.x, target.y, unit.splash, unit.dmg, unit.team);
+              if (effectiveSplash > 0) {
+                dealSplash(target.x, target.y, effectiveSplash, effectiveDmg, unit.team);
               } else {
-                dealDamage(target, unit.dmg);
+                dealDamage(target, effectiveDmg);
               }
               spawnParticle(target.x, target.y, '#fff', 5);
             }
           }
         }
       } else {
-        const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
-        const moveSpeed = unit.speed * 50;
-        unit.x += Math.cos(angle) * moveSpeed * dt;
-        unit.y += Math.sin(angle) * moveSpeed * dt;
+        // Zealot charge: burst forward
+        if (unit.type === 'zealot' && d > 60 && d < 120 && unit.chargeTimer <= 0) {
+          const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
+          unit.x += Math.cos(angle) * effectiveSpeed * 50 * 3 * dt;
+          unit.y += Math.sin(angle) * effectiveSpeed * 50 * 3 * dt;
+          unit.chargeTimer = 5;
+          spawnParticle(unit.x, unit.y, '#ffcc00', 5);
+        } else if (effectiveSpeed > 0) {
+          // Check force field collision for ground units
+          let blocked = false;
+          if (!unit.isAir) {
+            for (const ff of forceFields) {
+              if (ff.team === unit.team) continue;
+              if (dist(unit, ff) < ff.r + unit.r) { blocked = true; break; }
+            }
+          }
+          if (!blocked) {
+            const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
+            const moveSpeed = effectiveSpeed * 50;
+            unit.x += Math.cos(angle) * moveSpeed * dt;
+            unit.y += Math.sin(angle) * moveSpeed * dt;
+          }
+        }
+        // Siege tank: unsiege when target out of range
+        if (unit.type === 'siegetank' && unit.siegeMode) {
+          unit.siegeTimer += dt;
+          if (unit.siegeTimer > 3) { unit.siegeMode = false; unit.siegeTimer = 0; }
+        }
       }
     } else {
       const isPlayer = unit.team === 'player';
       const stance = isPlayer ? playerStance : enemyStance;
       let targetY;
       if (stance === 'defend') {
-        // In defend mode, hold just in front of base
-        targetY = isPlayer ? GAME_H - 120 : 120;
+        targetY = isPlayer ? GAME_H - 250 : 250;
       } else {
-        // Attack: push toward enemy base
-        targetY = isPlayer ? 45 : GAME_H - 45;
+        targetY = isPlayer ? 90 : GAME_H - 90;
       }
-      if (Math.abs(unit.y - targetY) > 5) {
-        const dir = targetY > unit.y ? 1 : -1;
-        unit.y += dir * unit.speed * 50 * dt;
+      if (Math.abs(unit.y - targetY) > 5 && effectiveSpeed > 0) {
+        // Check force field collision
+        let blocked = false;
+        if (!unit.isAir) {
+          for (const ff of forceFields) {
+            if (ff.team === unit.team) continue;
+            if (dist(unit, ff) < ff.r + unit.r) { blocked = true; break; }
+          }
+        }
+        if (!blocked) {
+          const dir = targetY > unit.y ? 1 : -1;
+          unit.y += dir * effectiveSpeed * 50 * dt;
+        }
+      }
+      // Siege tank: unsiege when no target
+      if (unit.type === 'siegetank' && unit.siegeMode) {
+        unit.siegeTimer += dt;
+        if (unit.siegeTimer > 3) { unit.siegeMode = false; unit.siegeTimer = 0; }
       }
     }
   }
@@ -674,6 +922,9 @@ function updateGame(dt) {
     if (u.hp <= 0 && !u.dead) {
       u.dead = true;
       spawnParticle(u.x, u.y, u.color, 10);
+      // Subtract supply
+      if (u.team === 'player') playerSupply -= (u.supply || 1);
+      else enemySupply -= (u.supply || 1);
     }
     return !u.dead;
   });
@@ -686,6 +937,19 @@ function updateGame(dt) {
     p.alpha = Math.max(0, p.life / p.maxLife);
   }
   particles = particles.filter(p => p.life > 0);
+
+  // Update camera
+  if (cameraAutoFollow) {
+    // Find frontline player unit (lowest Y = furthest from base)
+    let frontlineY = GAME_H - 90;
+    for (const u of units) {
+      if (u.dead || u.team !== 'player' || u.worker) continue;
+      if (u.y < frontlineY) frontlineY = u.y;
+    }
+    const targetCamY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, (frontlineY + GAME_H - 90) / 2 - VIEWPORT_H / 2));
+    cameraY += (targetCamY - cameraY) * 0.03; // smooth lerp
+  }
+  cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
 
   // Check win/lose
   if (towers.enemy.base.hp <= 0) { endGame(true); }
@@ -700,6 +964,8 @@ function updateGame(dt) {
 }
 
 function dealDamage(target, dmg) {
+  // Ghost cloak: 50% damage reduction
+  if (target.type === 'ghost') dmg = Math.floor(dmg * 0.5);
   if (target.shield && target.shield > 0) {
     const absorbed = Math.min(target.shield, dmg);
     target.shield -= absorbed;
@@ -760,8 +1026,36 @@ function updateEnemyAI(dt) {
   const workerDef = UNIT_DEFS[workerType];
   const baseBuilding = enemyBuildings.find(b => b.type === '_base');
 
+  // Phase 0: Build supply when near cap
+  if (enemySupply >= enemySupplyMax - 3) {
+    const supplyType = FACTION_SUPPLY[enemyFaction];
+    const supplyDef = BUILDING_DEFS[supplyType];
+    const hasSupplyBuilding = enemyBuildings.some(b => b.type === supplyType && !b.built);
+    if (!hasSupplyBuilding && enemyMinerals >= supplyDef.cost) {
+      enemyMinerals -= supplyDef.cost;
+      const bx = 50 + enemyBuildings.length * 35;
+      enemyBuildings.push({
+        type: supplyType, x: bx, y: 140,
+        hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: supplyDef.buildTime, queue: [],
+      });
+      return;
+    }
+  }
+
+  // Phase 0.5: Build gas refinery early
+  const gasType = FACTION_GAS[enemyFaction];
+  const hasGas = enemyBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding);
+  if (!hasGas && gameTime > 30 && enemyMinerals >= BUILDING_DEFS[gasType].cost) {
+    enemyMinerals -= BUILDING_DEFS[gasType].cost;
+    enemyBuildings.push({
+      type: gasType, x: gasGeysers.enemy.x, y: gasGeysers.enemy.y,
+      hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: BUILDING_DEFS[gasType].buildTime, queue: [],
+    });
+    return;
+  }
+
   // Phase 1: Build economy (workers from base)
-  if (workerCount < 8 && enemyMinerals >= workerDef.cost && baseBuilding && baseBuilding.queue.length < 2) {
+  if (workerCount < 8 && canAffordUnit(workerType, 'enemy') && baseBuilding && baseBuilding.queue.length < 2) {
     enemyMinerals -= workerDef.cost;
     baseBuilding.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
     return;
@@ -772,40 +1066,38 @@ function updateEnemyAI(dt) {
   if (availBuildings.length > 0) {
     const btype = availBuildings[0];
     const bdef = BUILDING_DEFS[btype];
-    if (enemyMinerals >= bdef.cost) {
+    const gasCost = bdef.gasCost || 0;
+    if (enemyMinerals >= bdef.cost && enemyGas >= gasCost) {
       enemyMinerals -= bdef.cost;
-      // Place the building directly
-      const baseY = 80;
-      const bx = 50 + enemyBuildings.length * 45;
+      enemyGas -= gasCost;
+      const bx = 50 + enemyBuildings.length * 35;
       enemyBuildings.push({
-        type: btype,
-        x: bx, y: baseY,
-        hp: 500, maxHp: 500,
-        built: false, buildProgress: 0, buildTime: bdef.buildTime,
-        queue: [],
+        type: btype, x: bx, y: 140,
+        hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
       });
       return;
     }
   }
 
-  // Phase 3: Build combat units (queue on appropriate buildings)
+  // Phase 3: Build combat units (supply + gas aware)
   const availUnits = getAvailableUnits('enemy');
   const combatUnits = availUnits.filter(u => !UNIT_DEFS[u].worker);
   if (combatUnits.length > 0) {
-    const affordable = combatUnits.filter(u => UNIT_DEFS[u].cost <= enemyMinerals);
+    const affordable = combatUnits.filter(u => canAffordUnit(u, 'enemy'));
     if (affordable.length > 0) {
       const pick = affordable[Math.floor(Math.random() * affordable.length)];
       const building = getBuildingForUnit(pick, enemyBuildings);
       if (building && building.queue.length < 3) {
         const def = UNIT_DEFS[pick];
         enemyMinerals -= def.cost;
+        enemyGas -= (def.gasCost || 0);
         building.queue.push({ type: pick, timeLeft: def.buildTime, totalTime: def.buildTime });
       }
     }
   }
 
   // Keep building workers up to 12
-  if (workerCount < 12 && enemyMinerals >= workerDef.cost && baseBuilding && baseBuilding.queue.length < 2) {
+  if (workerCount < 12 && canAffordUnit(workerType, 'enemy') && baseBuilding && baseBuilding.queue.length < 2) {
     enemyMinerals -= workerDef.cost;
     baseBuilding.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
   }
@@ -821,19 +1113,30 @@ function endGame(won) {
 }
 
 // ---- Rendering ----
+function isVisible(y, margin) {
+  return y > cameraY - (margin || 50) && y < cameraY + VIEWPORT_H + (margin || 50);
+}
+
 function render() {
   ctx.save();
   ctx.scale(SCALE, SCALE);
 
   // Background
   ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, GAME_W, GAME_H);
+  ctx.fillRect(0, 0, GAME_W, VIEWPORT_H);
+
+  // World-space rendering (offset by camera)
+  ctx.save();
+  ctx.translate(0, -cameraY);
 
   // Arena ground (left portion)
   drawArena();
 
   // River
   drawRiver();
+
+  // Gas geysers
+  drawGasGeysers();
 
   // Mineral patches
   drawMineralPatches();
@@ -844,14 +1147,26 @@ function render() {
   // Towers
   drawTowers();
 
+  // Force fields
+  for (const ff of forceFields) {
+    const alpha = ff.life / ff.maxLife;
+    ctx.fillStyle = `rgba(68, 170, 255, ${alpha * 0.3})`;
+    ctx.beginPath(); ctx.arc(ff.x, ff.y, ff.r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(100, 200, 255, ${alpha * 0.8})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ff.x, ff.y, ff.r, 0, Math.PI * 2); ctx.stroke();
+  }
+
   // Units
   for (const u of units) {
     if (u.dead) continue;
+    if (!isVisible(u.y)) continue;
     drawUnit(u);
   }
 
   // Projectiles
   for (const p of projectiles) {
+    if (!isVisible(p.y)) continue;
     ctx.fillStyle = p.color;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
@@ -860,6 +1175,7 @@ function render() {
 
   // Particles
   for (const p of particles) {
+    if (!isVisible(p.y, 20)) continue;
     ctx.globalAlpha = p.alpha;
     ctx.fillStyle = p.color;
     ctx.beginPath();
@@ -868,11 +1184,12 @@ function render() {
   }
   ctx.globalAlpha = 1;
 
-  // HUD
-  drawHUD();
+  ctx.restore(); // end world-space
 
-  // Right panel (production UI)
+  // Screen-space UI
+  drawHUD();
   drawProductionPanel();
+  drawMinimap();
 
   ctx.restore();
 }
@@ -880,15 +1197,17 @@ function render() {
 function drawArena() {
   // Ground tiles
   ctx.fillStyle = '#222244';
-  ctx.fillRect(20, 20, ARENA_W - 40, GAME_H - 20);
+  ctx.fillRect(20, 20, ARENA_W - 40, GAME_H - 30);
 
-  // Grid lines
+  // Grid lines (only draw visible ones)
   ctx.strokeStyle = '#2a2a4e';
   ctx.lineWidth = 0.5;
+  const startY = Math.max(20, Math.floor((cameraY - 10) / 30) * 30);
+  const endY = Math.min(GAME_H, cameraY + VIEWPORT_H + 30);
   for (let x = 20; x < ARENA_W - 20; x += 30) {
-    ctx.beginPath(); ctx.moveTo(x, 20); ctx.lineTo(x, GAME_H - 10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
   }
-  for (let y = 20; y < GAME_H; y += 30) {
+  for (let y = startY; y < endY; y += 30) {
     ctx.beginPath(); ctx.moveTo(20, y); ctx.lineTo(ARENA_W - 20, y); ctx.stroke();
   }
 
@@ -979,17 +1298,26 @@ function drawTowers() {
 }
 
 function drawUnit(u) {
-  const bob = Math.sin(u.animFrame) * 1.5;
+  const bob = Math.sin(u.animFrame) * (u.isAir ? 3 : 1.5);
+  const airOffset = u.isAir ? -8 : 0;
   const cx = u.x;
-  const cy = u.y + bob;
+  const cy = u.y + bob + airOffset;
   const r = u.r;
-  const dir = u.team === 'player' ? -1 : 1; // -1 = facing up, 1 = facing down
+  const dir = u.team === 'player' ? -1 : 1;
 
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  // Shadow (further away for air units)
+  const shadowOffset = u.isAir ? 12 : 2;
+  ctx.fillStyle = u.isAir ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.3)';
   ctx.beginPath();
-  ctx.ellipse(cx + 1, cy + r * 0.6 + 2, r * 1.0, r * 0.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(u.x + 1, u.y + r * 0.6 + shadowOffset, r * (u.isAir ? 1.2 : 1.0), r * 0.4, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  // Siege mode indicator
+  if (u.siegeMode) {
+    ctx.strokeStyle = 'rgba(255,100,0,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, r + 5, 0, Math.PI * 2); ctx.stroke();
+  }
 
   // Draw SC2-accurate unit
   ctx.save();
@@ -1037,6 +1365,16 @@ function drawSC2Unit(type, cx, cy, r, dir, color, team, anim) {
     case 'baneling': drawBaneling(cx, cy, r, dir, color, anim); break;
     case 'ultralisk': drawUltralisk(cx, cy, r, dir, color, anim); break;
     case 'drone': drawDroneUnit(cx, cy, r, dir, color, anim); break;
+    // Air units
+    case 'viking': drawVikingUnit(cx, cy, r, dir, color, anim); break;
+    case 'medivac': drawMedivacUnit(cx, cy, r, dir, color, anim); break;
+    case 'battlecruiser': drawBattlecruiserUnit(cx, cy, r, dir, color, anim); break;
+    case 'phoenix': drawPhoenixUnit(cx, cy, r, dir, color, anim); break;
+    case 'voidray': drawVoidRayUnit(cx, cy, r, dir, color, anim); break;
+    case 'carrier': drawCarrierUnit(cx, cy, r, dir, color, anim); break;
+    case 'mutalisk': drawMutaliskUnit(cx, cy, r, dir, color, anim); break;
+    case 'corruptor': drawCorruptorUnit(cx, cy, r, dir, color, anim); break;
+    case 'broodlord': drawBroodLordUnit(cx, cy, r, dir, color, anim); break;
     default:
       ctx.fillStyle = color;
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
@@ -2002,6 +2340,271 @@ function drawDroneUnit(cx, cy, r, dir, color, anim) {
   ctx.beginPath(); ctx.arc(cx + s*0.8, cy - s*3*dir, s*0.5, 0, Math.PI*2); ctx.fill();
 }
 
+// ========== AIR UNITS ==========
+
+function drawVikingUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 10;
+  // Wings (swept back)
+  ctx.fillStyle = shadeColor(color, -30);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*2*dir);
+  ctx.lineTo(cx - s*9, cy + s*6*dir);
+  ctx.lineTo(cx - s*7, cy + s*7*dir);
+  ctx.lineTo(cx, cy + s*2*dir);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*2*dir);
+  ctx.lineTo(cx + s*9, cy + s*6*dir);
+  ctx.lineTo(cx + s*7, cy + s*7*dir);
+  ctx.lineTo(cx, cy + s*2*dir);
+  ctx.closePath(); ctx.fill();
+  // Fuselage
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*3, s*5, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Cockpit
+  ctx.fillStyle = '#88ddff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*3*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+  // Engine glow
+  ctx.fillStyle = 'rgba(100,200,255,0.5)';
+  ctx.beginPath(); ctx.arc(cx - s*3, cy + s*5*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*3, cy + s*5*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+}
+
+function drawMedivacUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 10;
+  // Main body (transport hull)
+  ctx.fillStyle = '#ccddee';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*5, s*4, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Red cross
+  ctx.fillStyle = '#ff2222';
+  ctx.fillRect(cx - s*0.5, cy - s*2, s*1, s*4);
+  ctx.fillRect(cx - s*2, cy - s*0.5, s*4, s*1);
+  // Rotors
+  const rotAngle = anim * 10;
+  ctx.strokeStyle = 'rgba(200,200,200,0.6)';
+  ctx.lineWidth = s*0.8;
+  ctx.beginPath();
+  ctx.moveTo(cx + Math.cos(rotAngle)*s*6, cy + Math.sin(rotAngle)*s*3);
+  ctx.lineTo(cx - Math.cos(rotAngle)*s*6, cy - Math.sin(rotAngle)*s*3);
+  ctx.stroke();
+  // Tail
+  ctx.fillStyle = shadeColor(color, -20);
+  ctx.fillRect(cx - s*1, cy + s*3*dir, s*2, s*4*dir);
+}
+
+function drawBattlecruiserUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 16;
+  // Main hull (large)
+  ctx.fillStyle = shadeColor(color, -20);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*10*dir);
+  ctx.lineTo(cx + s*8, cy);
+  ctx.lineTo(cx + s*6, cy + s*8*dir);
+  ctx.lineTo(cx - s*6, cy + s*8*dir);
+  ctx.lineTo(cx - s*8, cy);
+  ctx.closePath(); ctx.fill();
+  // Bridge
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - s*2*dir, s*5, s*4, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Cannons
+  ctx.fillStyle = '#556677';
+  ctx.fillRect(cx - s*7, cy - s*1, s*3, -s*6*dir);
+  ctx.fillRect(cx + s*4, cy - s*1, s*3, -s*6*dir);
+  // Engine glow
+  ctx.fillStyle = 'rgba(255,150,50,0.6)';
+  ctx.beginPath(); ctx.arc(cx - s*3, cy + s*8*dir, s*2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*3, cy + s*8*dir, s*2, 0, Math.PI*2); ctx.fill();
+  // Bridge window
+  ctx.fillStyle = '#88ddff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*3*dir, s*2, 0, Math.PI*2); ctx.fill();
+}
+
+function drawPhoenixUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  // Swept wings
+  ctx.fillStyle = shadeColor(color, -20);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*4*dir);
+  ctx.lineTo(cx - s*8, cy + s*3*dir);
+  ctx.lineTo(cx - s*6, cy + s*5*dir);
+  ctx.lineTo(cx, cy + s*1*dir);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*4*dir);
+  ctx.lineTo(cx + s*8, cy + s*3*dir);
+  ctx.lineTo(cx + s*6, cy + s*5*dir);
+  ctx.lineTo(cx, cy + s*1*dir);
+  ctx.closePath(); ctx.fill();
+  // Body
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*2.5, s*4, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Energy core
+  ctx.fillStyle = '#00ccff';
+  ctx.beginPath(); ctx.arc(cx, cy, s*1.5, 0, Math.PI*2); ctx.fill();
+}
+
+function drawVoidRayUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 11;
+  // Elongated body with prism
+  ctx.fillStyle = shadeColor(color, -15);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*8*dir);
+  ctx.lineTo(cx + s*5, cy + s*2*dir);
+  ctx.lineTo(cx + s*3, cy + s*6*dir);
+  ctx.lineTo(cx - s*3, cy + s*6*dir);
+  ctx.lineTo(cx - s*5, cy + s*2*dir);
+  ctx.closePath(); ctx.fill();
+  // Crystal prism (front)
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*8*dir);
+  ctx.lineTo(cx + s*2, cy - s*4*dir);
+  ctx.lineTo(cx - s*2, cy - s*4*dir);
+  ctx.closePath(); ctx.fill();
+  // Beam emitter glow
+  const beamPulse = Math.sin(anim * 6) * s;
+  ctx.fillStyle = 'rgba(255,220,0,0.5)';
+  ctx.beginPath(); ctx.arc(cx, cy - s*8*dir, s*2 + beamPulse, 0, Math.PI*2); ctx.fill();
+  // Side panels
+  ctx.fillStyle = shadeColor(color, 20);
+  ctx.fillRect(cx - s*6, cy - s*1, s*2, s*4*dir);
+  ctx.fillRect(cx + s*4, cy - s*1, s*2, s*4*dir);
+}
+
+function drawCarrierUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 15;
+  // Massive hull
+  ctx.fillStyle = shadeColor(color, -25);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*12, s*7, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Upper structure
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - s*1*dir, s*8, s*4, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Flight deck opening
+  ctx.fillStyle = '#224400';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + s*2*dir, s*4, s*2, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Pylon glow (front)
+  ctx.fillStyle = 'rgba(255,200,0,0.5)';
+  ctx.beginPath(); ctx.arc(cx, cy - s*5*dir, s*2, 0, Math.PI*2); ctx.fill();
+  // Side fins
+  ctx.fillStyle = shadeColor(color, 15);
+  ctx.beginPath();
+  ctx.moveTo(cx - s*10, cy); ctx.lineTo(cx - s*14, cy + s*2*dir); ctx.lineTo(cx - s*10, cy + s*3*dir);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*10, cy); ctx.lineTo(cx + s*14, cy + s*2*dir); ctx.lineTo(cx + s*10, cy + s*3*dir);
+  ctx.closePath(); ctx.fill();
+}
+
+function drawMutaliskUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  // Wings (bat-like)
+  const wingFlap = Math.sin(anim * 8) * s * 1.5;
+  ctx.fillStyle = shadeColor(color, -25);
+  ctx.beginPath();
+  ctx.moveTo(cx - s*2, cy);
+  ctx.quadraticCurveTo(cx - s*8, cy - wingFlap*2, cx - s*9, cy + s*4*dir + wingFlap);
+  ctx.lineTo(cx - s*5, cy + s*3*dir);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*2, cy);
+  ctx.quadraticCurveTo(cx + s*8, cy + wingFlap*2, cx + s*9, cy + s*4*dir - wingFlap);
+  ctx.lineTo(cx + s*5, cy + s*3*dir);
+  ctx.closePath(); ctx.fill();
+  // Body
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*3, s*4, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Tail (whip-like)
+  ctx.strokeStyle = shadeColor(color, -30);
+  ctx.lineWidth = s;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + s*3*dir);
+  ctx.quadraticCurveTo(cx + Math.sin(anim*5)*s*2, cy + s*7*dir, cx + Math.sin(anim*3)*s*3, cy + s*9*dir);
+  ctx.stroke();
+  // Eyes
+  ctx.fillStyle = '#ff6600';
+  ctx.beginPath(); ctx.arc(cx - s*1, cy - s*2*dir, s*0.6, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1, cy - s*2*dir, s*0.6, 0, Math.PI*2); ctx.fill();
+}
+
+function drawCorruptorUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 11;
+  // Tentacles
+  ctx.strokeStyle = shadeColor(color, -40);
+  ctx.lineWidth = s*1.2;
+  for (let i = 0; i < 4; i++) {
+    const angle = (i/4) * Math.PI * 2;
+    const wave = Math.sin(anim*4 + i)*s*2;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle)*s*4, cy + Math.sin(angle)*s*4);
+    ctx.quadraticCurveTo(cx + Math.cos(angle)*s*7 + wave, cy + Math.sin(angle)*s*7, cx + Math.cos(angle)*s*9, cy + Math.sin(angle)*s*9 + wave);
+    ctx.stroke();
+  }
+  // Body (armored sphere)
+  ctx.fillStyle = shadeColor(color, -15);
+  ctx.beginPath(); ctx.arc(cx, cy, s*5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(cx, cy, s*3.5, 0, Math.PI*2); ctx.fill();
+  // Eye
+  ctx.fillStyle = '#ffaa00';
+  ctx.beginPath(); ctx.arc(cx, cy - s*1*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(cx, cy - s*1*dir, s*0.7, 0, Math.PI*2); ctx.fill();
+}
+
+function drawBroodLordUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 14;
+  // Large wings
+  ctx.fillStyle = shadeColor(color, -30);
+  const flapOff = Math.sin(anim*4)*s;
+  ctx.beginPath();
+  ctx.moveTo(cx - s*3, cy - s*1);
+  ctx.lineTo(cx - s*12, cy + s*4*dir + flapOff);
+  ctx.lineTo(cx - s*10, cy + s*7*dir + flapOff);
+  ctx.lineTo(cx - s*2, cy + s*3);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*3, cy - s*1);
+  ctx.lineTo(cx + s*12, cy + s*4*dir - flapOff);
+  ctx.lineTo(cx + s*10, cy + s*7*dir - flapOff);
+  ctx.lineTo(cx + s*2, cy + s*3);
+  ctx.closePath(); ctx.fill();
+  // Body (large bloated)
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s*5, s*6, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Broodling sac
+  ctx.fillStyle = shadeColor(color, 30);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + s*2*dir, s*3, s*3, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Head
+  ctx.fillStyle = shadeColor(color, -10);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - s*5*dir, s*3, s*2, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Eyes
+  ctx.fillStyle = '#ff4400';
+  ctx.beginPath(); ctx.arc(cx - s*1, cy - s*5.5*dir, s*0.6, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1, cy - s*5.5*dir, s*0.6, 0, Math.PI*2); ctx.fill();
+}
+
 function drawPolygon(ctx, cx, cy, r, sides, color) {
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -2029,6 +2632,37 @@ function drawStar(ctx, cx, cy, r, color) {
   }
   ctx.closePath();
   ctx.fill();
+}
+
+// ---- Draw Gas Geysers ----
+function drawGasGeysers() {
+  if (!gasGeysers) return;
+  for (const key of ['player', 'enemy']) {
+    const g = gasGeysers[key];
+    if (!isVisible(g.y)) continue;
+    const frac = g.gas / g.maxGas;
+    const size = 8 + frac * 4;
+    // Green glow
+    ctx.fillStyle = 'rgba(0, 200, 50, 0.15)';
+    ctx.beginPath(); ctx.arc(g.x, g.y, size + 5, 0, Math.PI * 2); ctx.fill();
+    // Geyser body
+    ctx.fillStyle = '#227733';
+    ctx.beginPath(); ctx.arc(g.x, g.y, size, 0, Math.PI * 2); ctx.fill();
+    // Inner glow
+    ctx.fillStyle = '#44ee66';
+    ctx.beginPath(); ctx.arc(g.x, g.y, size * 0.5, 0, Math.PI * 2); ctx.fill();
+    // Vent lines
+    ctx.strokeStyle = '#66ff88';
+    ctx.lineWidth = 1;
+    const puff = Math.sin(gameTime * 3) * 3;
+    ctx.beginPath(); ctx.moveTo(g.x, g.y - size); ctx.lineTo(g.x - 3, g.y - size - 8 - puff); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(g.x, g.y - size); ctx.lineTo(g.x + 3, g.y - size - 6 - puff); ctx.stroke();
+    // Label
+    ctx.fillStyle = '#44ee66';
+    ctx.font = 'bold 7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.floor(g.gas), g.x, g.y - size - 10);
+  }
 }
 
 // ---- Draw Mineral Patches ----
@@ -2121,22 +2755,34 @@ function drawBuildings() {
 }
 
 function drawHUD() {
-  // Top bar
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(0, 0, ARENA_W, 22);
+  // Top bar (screen-space)
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, ARENA_W, 32);
 
-  // Minerals display
+  // Row 1: Minerals | Timer | Enemy label
+  // Mineral icon
+  ctx.fillStyle = '#4488dd';
+  ctx.fillRect(5, 4, 3, 10);
+  ctx.fillStyle = '#66aaff';
+  ctx.fillRect(6, 6, 2, 6);
   ctx.fillStyle = '#88ccff';
   ctx.font = 'bold 10px monospace';
   ctx.textAlign = 'left';
-  // Mineral icon
-  ctx.fillStyle = '#4488dd';
-  ctx.fillRect(5, 5, 3, 10);
-  ctx.fillStyle = '#66aaff';
-  ctx.fillRect(6, 7, 2, 6);
-  ctx.fillStyle = '#88ccff';
-  ctx.font = 'bold 11px monospace';
-  ctx.fillText(Math.floor(playerMinerals), 12, 14);
+  ctx.fillText(Math.floor(playerMinerals), 12, 13);
+
+  // Gas icon + count
+  ctx.fillStyle = '#227733';
+  ctx.beginPath(); ctx.arc(65, 9, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#44ee66';
+  ctx.beginPath(); ctx.arc(65, 9, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#44ee66';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(Math.floor(playerGas), 72, 13);
+
+  // Supply
+  ctx.fillStyle = '#ffaa44';
+  ctx.font = 'bold 9px monospace';
+  ctx.fillText(`${playerSupply}/${playerSupplyMax}`, 5, 26);
 
   // Timer
   const remaining = Math.max(0, 600 - gameTime);
@@ -2145,28 +2791,27 @@ function drawHUD() {
   ctx.fillStyle = remaining < 60 ? '#ff4444' : '#fff';
   ctx.textAlign = 'center';
   ctx.font = 'bold 11px monospace';
-  ctx.fillText(`${min}:${sec < 10 ? '0' : ''}${sec}`, ARENA_W / 2, 14);
+  ctx.fillText(`${min}:${sec < 10 ? '0' : ''}${sec}`, ARENA_W / 2, 13);
 
   // Enemy label
   ctx.fillStyle = FACTION_COLORS[enemyFaction].primary;
   ctx.textAlign = 'right';
   ctx.font = 'bold 9px monospace';
-  ctx.fillText('vs ' + enemyFaction.toUpperCase(), ARENA_W - 4, 14);
+  ctx.fillText('vs ' + enemyFaction.toUpperCase(), ARENA_W - 4, 13);
 
   // Worker count
   const workerCount = units.filter(u => !u.dead && u.team === 'player' && u.worker).length;
   ctx.fillStyle = '#aaa';
   ctx.textAlign = 'left';
   ctx.font = '9px monospace';
-  ctx.fillText(`Workers: ${workerCount}`, 5, GAME_H - 4);
+  ctx.fillText(`Workers: ${workerCount}`, 5, VIEWPORT_H - 4);
 
-  // Per-building production indicators on arena
-  let qy = GAME_H - 16;
+  // Per-building production indicators
+  let qy = VIEWPORT_H - 16;
   for (const b of playerBuildings) {
     if (!b.queue || b.queue.length === 0 || !b.built) continue;
     const q = b.queue[0];
     const frac = 1 - q.timeLeft / q.totalTime;
-    const bname = BUILDING_DEFS[b.type] ? BUILDING_DEFS[b.type].name : 'Base';
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(5, qy, 80, 10);
     ctx.fillStyle = '#ffaa00';
@@ -2177,7 +2822,7 @@ function drawHUD() {
     const uname = UNIT_DEFS[q.type] ? UNIT_DEFS[q.type].name : q.type;
     ctx.fillText(`${uname}`, 7, qy + 8);
     qy -= 12;
-    if (qy < GAME_H - 50) break;
+    if (qy < VIEWPORT_H - 50) break;
   }
 }
 
@@ -2188,13 +2833,13 @@ const BTN_W = PANEL_W - 8;
 let panelScroll = 0;
 
 function drawProductionPanel() {
-  const px = ARENA_W; // panel x start
+  const px = ARENA_W;
   // Panel background
   ctx.fillStyle = 'rgba(5,5,20,0.92)';
-  ctx.fillRect(px, 0, PANEL_W, GAME_H);
+  ctx.fillRect(px, 0, PANEL_W, VIEWPORT_H);
   ctx.strokeStyle = '#334';
   ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, GAME_H); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, VIEWPORT_H); ctx.stroke();
 
   const fc = FACTION_COLORS[playerFaction];
 
@@ -2204,115 +2849,147 @@ function drawProductionPanel() {
   ctx.textAlign = 'center';
   ctx.fillText(playerFaction.toUpperCase(), px + PANEL_W/2, 12);
 
-  // Mineral display in panel
+  // Resource display
   ctx.fillStyle = '#88ccff';
-  ctx.font = 'bold 10px monospace';
-  ctx.fillText(Math.floor(playerMinerals), px + PANEL_W/2, 24);
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(Math.floor(playerMinerals), px + 5, 24);
+  ctx.fillStyle = '#44ee66';
+  ctx.fillText(Math.floor(playerGas), px + 48, 24);
 
-  let y = 32;
+  let y = 32 - panelScroll;
 
   // Stance buttons
   const stanceY = y;
-  const halfW = (PANEL_W - 12) / 2;
-  // Attack button
-  ctx.fillStyle = playerStance === 'attack' ? '#aa3333' : '#332222';
-  roundRect(ctx, px + 4, stanceY, halfW, 16, 3, true, false);
-  ctx.strokeStyle = playerStance === 'attack' ? '#ff4444' : '#553333';
-  ctx.lineWidth = 1;
-  roundRect(ctx, px + 4, stanceY, halfW, 16, 3, false, true);
-  ctx.fillStyle = playerStance === 'attack' ? '#fff' : '#888';
-  ctx.font = 'bold 6px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('ATK', px + 4 + halfW/2, stanceY + 11);
+  if (stanceY > -20 && stanceY < VIEWPORT_H) {
+    const halfW = (PANEL_W - 12) / 2;
+    ctx.fillStyle = playerStance === 'attack' ? '#aa3333' : '#332222';
+    roundRect(ctx, px + 4, stanceY, halfW, 16, 3, true, false);
+    ctx.strokeStyle = playerStance === 'attack' ? '#ff4444' : '#553333';
+    ctx.lineWidth = 1;
+    roundRect(ctx, px + 4, stanceY, halfW, 16, 3, false, true);
+    ctx.fillStyle = playerStance === 'attack' ? '#fff' : '#888';
+    ctx.font = 'bold 6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ATK', px + 4 + halfW/2, stanceY + 11);
 
-  // Defend button
-  ctx.fillStyle = playerStance === 'defend' ? '#3333aa' : '#222233';
-  roundRect(ctx, px + 6 + halfW, stanceY, halfW, 16, 3, true, false);
-  ctx.strokeStyle = playerStance === 'defend' ? '#4444ff' : '#333355';
-  ctx.lineWidth = 1;
-  roundRect(ctx, px + 6 + halfW, stanceY, halfW, 16, 3, false, true);
-  ctx.fillStyle = playerStance === 'defend' ? '#fff' : '#888';
-  ctx.font = 'bold 6px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('DEF', px + 6 + halfW + halfW/2, stanceY + 11);
+    ctx.fillStyle = playerStance === 'defend' ? '#3333aa' : '#222233';
+    roundRect(ctx, px + 6 + halfW, stanceY, halfW, 16, 3, true, false);
+    ctx.strokeStyle = playerStance === 'defend' ? '#4444ff' : '#333355';
+    ctx.lineWidth = 1;
+    roundRect(ctx, px + 6 + halfW, stanceY, halfW, 16, 3, false, true);
+    ctx.fillStyle = playerStance === 'defend' ? '#fff' : '#888';
+    ctx.font = 'bold 6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('DEF', px + 6 + halfW + halfW/2, stanceY + 11);
+  }
   y += 22;
 
-  // Per-building sections: show each building, its queue, and producible units
+  // Per-building sections
   for (const b of playerBuildings) {
-    if (y > GAME_H - 10) break;
+    if (y > VIEWPORT_H + 10) break;
     const bdef = BUILDING_DEFS[b.type];
     if (!bdef) continue;
+    // Skip supply/gas buildings from unit production list (they don't produce units)
+    if (bdef.supplyCap && b.type !== '_base') continue;
+    if (bdef.gasBuilding) continue;
 
-    // Building header
-    ctx.fillStyle = b.built ? fc.primary : '#666';
-    ctx.font = 'bold 7px monospace';
-    ctx.textAlign = 'center';
-    const bname = b.type === '_base' ? 'BASE' : bdef.name.toUpperCase();
-    ctx.fillText(bname, px + PANEL_W/2, y + 7);
+    if (y > -BTN_H * 4) {
+      ctx.fillStyle = b.built ? fc.primary : '#666';
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'center';
+      const bname = b.type === '_base' ? 'BASE' : bdef.name.toUpperCase();
+      ctx.fillText(bname, px + PANEL_W/2, y + 7);
+    }
     y += 10;
 
-    // Show if building is under construction
     if (!b.built) {
-      const frac = b.buildProgress / b.buildTime;
-      ctx.fillStyle = 'rgba(255,170,0,0.2)';
-      ctx.fillRect(px + 4, y, BTN_W, 8);
-      ctx.fillStyle = '#ffaa00';
-      ctx.fillRect(px + 4, y, BTN_W * frac, 8);
-      ctx.fillStyle = '#aaa';
-      ctx.font = '6px monospace';
-      ctx.fillText('BUILDING...', px + PANEL_W/2, y + 7);
+      if (y > -20 && y < VIEWPORT_H) {
+        const frac = b.buildProgress / b.buildTime;
+        ctx.fillStyle = 'rgba(255,170,0,0.2)';
+        ctx.fillRect(px + 4, y, BTN_W, 8);
+        ctx.fillStyle = '#ffaa00';
+        ctx.fillRect(px + 4, y, BTN_W * frac, 8);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '6px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('BUILDING...', px + PANEL_W/2, y + 7);
+      }
       y += 14;
       continue;
     }
 
-    // Queue progress bar for this building
     if (b.queue && b.queue.length > 0) {
-      const q = b.queue[0];
-      const frac = 1 - q.timeLeft / q.totalTime;
-      ctx.fillStyle = 'rgba(255,170,0,0.15)';
-      ctx.fillRect(px + 4, y, BTN_W, 12);
-      ctx.fillStyle = '#ffaa00';
-      ctx.fillRect(px + 4, y + 8, BTN_W * frac, 3);
-      ctx.fillStyle = '#ffcc44';
-      ctx.font = '6px monospace';
-      const uname = UNIT_DEFS[q.type] ? UNIT_DEFS[q.type].name : q.type;
-      ctx.fillText(uname + (b.queue.length > 1 ? ` +${b.queue.length-1}` : ''), px + PANEL_W/2, y + 8);
+      if (y > -20 && y < VIEWPORT_H) {
+        const q = b.queue[0];
+        const frac = 1 - q.timeLeft / q.totalTime;
+        ctx.fillStyle = 'rgba(255,170,0,0.15)';
+        ctx.fillRect(px + 4, y, BTN_W, 12);
+        ctx.fillStyle = '#ffaa00';
+        ctx.fillRect(px + 4, y + 8, BTN_W * frac, 3);
+        ctx.fillStyle = '#ffcc44';
+        ctx.font = '6px monospace';
+        ctx.textAlign = 'center';
+        const uname = UNIT_DEFS[q.type] ? UNIT_DEFS[q.type].name : q.type;
+        ctx.fillText(uname + (b.queue.length > 1 ? ` +${b.queue.length-1}` : ''), px + PANEL_W/2, y + 8);
+      }
       y += 14;
     }
 
-    // Show producible units for this building
     const producible = getProducibleUnits(b);
     for (const utype of producible) {
-      if (y > GAME_H - 10) break;
-      const def = UNIT_DEFS[utype];
-      const affordable = def.cost <= playerMinerals;
-      drawPanelButton(px + 4, y, utype, def.name, def.cost, affordable, false, false);
+      if (y > VIEWPORT_H + 10) break;
+      if (y > -BTN_H - 5) {
+        const def = UNIT_DEFS[utype];
+        const affordable = canAffordUnit(utype, 'player');
+        drawPanelButton(px + 4, y, utype, def.name, def.cost, affordable, false, false);
+      }
       y += BTN_H + 2;
     }
 
     y += 4;
-    // Separator line
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.moveTo(px + 8, y); ctx.lineTo(px + PANEL_W - 8, y); ctx.stroke();
+    if (y > -5 && y < VIEWPORT_H) {
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(px + 8, y); ctx.lineTo(px + PANEL_W - 8, y); ctx.stroke();
+    }
     y += 4;
   }
 
-  // Section: Available buildings to construct
+  // Available buildings to construct
   const availBuildings = getAvailableBuildings('player');
-  if (availBuildings.length > 0 && y < GAME_H - 50) {
-    ctx.fillStyle = '#666';
-    ctx.font = 'bold 7px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('BUILD', px + PANEL_W/2, y + 6);
+  if (availBuildings.length > 0) {
+    if (y > -20 && y < VIEWPORT_H) {
+      ctx.fillStyle = '#666';
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('BUILD', px + PANEL_W/2, y + 6);
+    }
     y += 12;
     for (const btype of availBuildings) {
-      if (y > GAME_H - 10) break;
-      const bdef = BUILDING_DEFS[btype];
-      const affordable = bdef.cost <= playerMinerals;
-      drawPanelButton(px + 4, y, btype, bdef.name, bdef.cost, affordable, false, true);
+      if (y > VIEWPORT_H + 10) break;
+      if (y > -BTN_H - 5) {
+        const bdef = BUILDING_DEFS[btype];
+        const gasCost = bdef.gasCost || 0;
+        const affordable = bdef.cost <= playerMinerals && playerGas >= gasCost;
+        drawPanelButton(px + 4, y, btype, bdef.name, bdef.cost, affordable, false, true);
+      }
       y += BTN_H + 3;
     }
+  }
+
+  // Scroll indicators
+  if (panelScroll > 0) {
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('\u25B2', px + PANEL_W/2, 40);
+  }
+  if (y + panelScroll > VIEWPORT_H) {
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('\u25BC', px + PANEL_W/2, VIEWPORT_H - 5);
   }
 }
 
@@ -2375,16 +3052,72 @@ function drawPanelButton(bx, by, type, name, cost, affordable, selected, isBuild
   ctx.textAlign = 'left';
   ctx.fillText(name, bx + 30, by + 14);
 
-  // Cost
+  // Cost (minerals + gas)
   ctx.fillStyle = affordable ? '#88ccff' : '#444';
-  ctx.font = 'bold 8px monospace';
+  ctx.font = 'bold 7px monospace';
   ctx.fillText(cost, bx + 30, by + 26);
+  const gasCost = isBuilding ? (BUILDING_DEFS[type].gasCost || 0) : (UNIT_DEFS[type].gasCost || 0);
+  if (gasCost > 0) {
+    ctx.fillStyle = affordable ? '#44ee66' : '#444';
+    ctx.fillText('/' + gasCost, bx + 52, by + 26);
+  }
 
-  // Build time
-  const btime = isBuilding ? BUILDING_DEFS[type].buildTime : UNIT_DEFS[type].buildTime;
-  ctx.fillStyle = affordable ? '#888' : '#444';
-  ctx.font = '6px monospace';
-  ctx.fillText(`${btime}s`, bx + 55, by + 26);
+  // Supply cost (for units)
+  if (!isBuilding) {
+    const def = UNIT_DEFS[type];
+    ctx.fillStyle = affordable ? '#ffaa44' : '#444';
+    ctx.font = '6px monospace';
+    ctx.fillText(`s${(def.supply||1)*def.count}`, bx + (gasCost > 0 ? 72 : 55), by + 26);
+  } else {
+    const btime = BUILDING_DEFS[type].buildTime;
+    ctx.fillStyle = affordable ? '#888' : '#444';
+    ctx.font = '6px monospace';
+    ctx.fillText(`${btime}s`, bx + (gasCost > 0 ? 72 : 55), by + 26);
+  }
+}
+
+// ---- Minimap ----
+function drawMinimap() {
+  const mmW = 50, mmH = 100;
+  const mmX = ARENA_W - mmW - 5;
+  const mmY = VIEWPORT_H - mmH - 5;
+  const scaleX = mmW / ARENA_W;
+  const scaleY = mmH / GAME_H;
+
+  // Background
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(mmX, mmY, mmW, mmH);
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(mmX, mmY, mmW, mmH);
+
+  // River
+  ctx.fillStyle = 'rgba(0,100,200,0.5)';
+  ctx.fillRect(mmX, mmY + RIVER_Y * scaleY, mmW, 2);
+
+  // Towers
+  for (const key of ['left', 'right', 'base']) {
+    if (towers.player[key].hp > 0) {
+      ctx.fillStyle = '#4488ff';
+      ctx.fillRect(mmX + towers.player[key].x * scaleX - 1, mmY + towers.player[key].y * scaleY - 1, 3, 3);
+    }
+    if (towers.enemy[key].hp > 0) {
+      ctx.fillStyle = '#ff4444';
+      ctx.fillRect(mmX + towers.enemy[key].x * scaleX - 1, mmY + towers.enemy[key].y * scaleY - 1, 3, 3);
+    }
+  }
+
+  // Units as dots
+  for (const u of units) {
+    if (u.dead) continue;
+    ctx.fillStyle = u.team === 'player' ? '#88ff88' : '#ff8888';
+    ctx.fillRect(mmX + u.x * scaleX, mmY + u.y * scaleY, 1.5, 1.5);
+  }
+
+  // Viewport indicator
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(mmX, mmY + cameraY * scaleY, mmW, VIEWPORT_H * scaleY);
 }
 
 function roundRect(ctx, x, y, w, h, r, fill, stroke) {
@@ -2411,7 +3144,7 @@ function gameToCanvas(tx, ty) {
 function getPanelButtons() {
   const px = ARENA_W;
   const buttons = [];
-  let y = 32;
+  let y = 32 - panelScroll;
 
   // Stance buttons
   const halfW = (PANEL_W - 12) / 2;
@@ -2421,39 +3154,39 @@ function getPanelButtons() {
 
   // Per-building sections
   for (const b of playerBuildings) {
-    if (y > GAME_H - 10) break;
+    if (y > VIEWPORT_H + 10) break;
     const bdef = BUILDING_DEFS[b.type];
     if (!bdef) continue;
+    if (bdef.supplyCap && b.type !== '_base') continue;
+    if (bdef.gasBuilding) continue;
 
-    y += 10; // building header
+    y += 10;
 
     if (!b.built) {
       y += 14;
       continue;
     }
 
-    // Queue progress area
     if (b.queue && b.queue.length > 0) {
       y += 14;
     }
 
-    // Producible units
     const producible = getProducibleUnits(b);
     for (const utype of producible) {
-      if (y > GAME_H - 10) break;
+      if (y > VIEWPORT_H + 10) break;
       buttons.push({ type: utype, x: px + 4, y, isBuilding: false, building: b });
       y += BTN_H + 2;
     }
 
-    y += 4 + 4; // separator
+    y += 4 + 4;
   }
 
   // Available buildings to construct
   const availBuildings = getAvailableBuildings('player');
-  if (availBuildings.length > 0 && y < GAME_H - 50) {
+  if (availBuildings.length > 0) {
     y += 12;
     for (const btype of availBuildings) {
-      if (y > GAME_H - 10) break;
+      if (y > VIEWPORT_H + 10) break;
       buttons.push({ type: btype, x: px + 4, y, isBuilding: true });
       y += BTN_H + 3;
     }
@@ -2471,7 +3204,6 @@ function handleInput(x, y) {
     const bw = btn.w || BTN_W;
     const bh = btn.h || BTN_H;
     if (x >= btn.x && x <= btn.x + bw && y >= btn.y && y <= btn.y + bh) {
-      // Stance buttons
       if (btn.isStance) {
         if (btn.type === '_stance_attack') playerStance = 'attack';
         if (btn.type === '_stance_defend') playerStance = 'defend';
@@ -2480,10 +3212,19 @@ function handleInput(x, y) {
       // Building construction
       if (btn.isBuilding) {
         const bdef = BUILDING_DEFS[btn.type];
-        if (bdef.cost <= playerMinerals) {
+        const gasCost = bdef.gasCost || 0;
+        if (bdef.cost <= playerMinerals && playerGas >= gasCost) {
           playerMinerals -= bdef.cost;
-          const baseY = GAME_H - 80;
-          const bx = 50 + playerBuildings.length * 45;
+          playerGas -= gasCost;
+          // Gas buildings go on geyser, others near base
+          let bx, baseY;
+          if (bdef.gasBuilding) {
+            bx = gasGeysers.player.x;
+            baseY = gasGeysers.player.y;
+          } else {
+            baseY = GAME_H - 160;
+            bx = 50 + playerBuildings.length * 35;
+          }
           playerBuildings.push({
             type: btn.type,
             x: bx, y: baseY,
@@ -2494,35 +3235,151 @@ function handleInput(x, y) {
         }
         return;
       }
-      // Unit production — queue on the correct building
+      // Unit production — check supply + gas
       const def = UNIT_DEFS[btn.type];
-      if (def && def.cost <= playerMinerals) {
+      if (def && canAffordUnit(btn.type, 'player')) {
         const building = btn.building || getBuildingForUnit(btn.type, playerBuildings);
         if (building && building.queue.length < 5) {
           playerMinerals -= def.cost;
+          playerGas -= (def.gasCost || 0);
           building.queue.push({ type: btn.type, timeLeft: def.buildTime, totalTime: def.buildTime });
         }
       }
       return;
     }
   }
+
+  // Click on minimap to jump camera
+  const mmW = 50, mmH = 100;
+  const mmX = ARENA_W - mmW - 5;
+  const mmY = VIEWPORT_H - mmH - 5;
+  if (x >= mmX && x <= mmX + mmW && y >= mmY && y <= mmY + mmH) {
+    const clickFrac = (y - mmY) / mmH;
+    cameraY = clickFrac * GAME_H - VIEWPORT_H / 2;
+    cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
+    cameraAutoFollow = false;
+    return;
+  }
 }
+
+// Touch/mouse input with drag-to-scroll
+let touchStartX = 0, touchStartY = 0, touchMoved = false;
+let panelTouchStartY = 0, panelTouchMoved = false;
 
 canvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
   if (!gameRunning) return;
   const touch = e.touches[0];
   const { x, y } = gameToCanvas(touch.clientX, touch.clientY);
-  handleInput(x, y);
+  touchStartX = x;
+  touchStartY = y;
+  touchMoved = false;
+
+  // Check if touching panel for panel scroll
+  if (x >= ARENA_W) {
+    panelTouchStartY = y;
+    panelTouchMoved = false;
+  } else {
+    cameraDragging = true;
+    cameraDragLastY = y;
+    cameraAutoFollow = false;
+  }
 }, { passive: false });
 
-canvas.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (!gameRunning) return;
+  const touch = e.touches[0];
+  const { x, y } = gameToCanvas(touch.clientX, touch.clientY);
+  const dx = x - touchStartX;
+  const dy = y - touchStartY;
 
+  if (Math.abs(dy) > 5) touchMoved = true;
+
+  if (x >= ARENA_W) {
+    // Panel scroll
+    const panelDy = y - panelTouchStartY;
+    if (Math.abs(panelDy) > 3) {
+      panelScroll -= (y - panelTouchStartY);
+      panelScroll = Math.max(0, panelScroll);
+      panelTouchStartY = y;
+      panelTouchMoved = true;
+    }
+  } else if (cameraDragging) {
+    const dragDy = y - cameraDragLastY;
+    cameraY -= dragDy;
+    cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
+    cameraDragLastY = y;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  if (!gameRunning) return;
+  cameraDragging = false;
+  if (!touchMoved && !panelTouchMoved) {
+    handleInput(touchStartX, touchStartY);
+  }
+  // Double-tap base areas to snap camera
+  panelTouchMoved = false;
+}, { passive: false });
+
+let mouseDown = false, mouseStartY = 0, mouseStartX = 0, mouseMoved = false;
 canvas.addEventListener('mousedown', (e) => {
   if (!gameRunning) return;
   const { x, y } = gameToCanvas(e.clientX, e.clientY);
-  handleInput(x, y);
+  mouseDown = true;
+  mouseStartX = x;
+  mouseStartY = y;
+  mouseMoved = false;
+  if (x < ARENA_W) {
+    cameraDragging = true;
+    cameraDragLastY = y;
+    cameraAutoFollow = false;
+  }
 });
+
+canvas.addEventListener('mousemove', (e) => {
+  if (!mouseDown || !gameRunning) return;
+  const { x, y } = gameToCanvas(e.clientX, e.clientY);
+  if (Math.abs(y - mouseStartY) > 5) mouseMoved = true;
+  if (cameraDragging && mouseStartX < ARENA_W) {
+    cameraY -= (y - cameraDragLastY);
+    cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
+    cameraDragLastY = y;
+  } else if (mouseStartX >= ARENA_W) {
+    // Panel scroll with mouse drag
+    panelScroll -= (y - cameraDragLastY);
+    panelScroll = Math.max(0, panelScroll);
+    cameraDragLastY = y;
+  }
+});
+
+canvas.addEventListener('mouseup', (e) => {
+  if (!gameRunning) return;
+  cameraDragging = false;
+  if (!mouseMoved) {
+    const { x, y } = gameToCanvas(e.clientX, e.clientY);
+    handleInput(x, y);
+  }
+  mouseDown = false;
+  mouseMoved = false;
+});
+
+// Mouse wheel for camera + panel scroll
+canvas.addEventListener('wheel', (e) => {
+  if (!gameRunning) return;
+  e.preventDefault();
+  const { x } = gameToCanvas(e.clientX, e.clientY);
+  if (x >= ARENA_W) {
+    panelScroll += e.deltaY * 0.5;
+    panelScroll = Math.max(0, panelScroll);
+  } else {
+    cameraY += e.deltaY * 0.5;
+    cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
+    cameraAutoFollow = false;
+  }
+}, { passive: false });
 
 // ---- Game Loop ----
 let lastTime = 0;
@@ -2541,6 +3398,7 @@ function gameLoop(timestamp) {
 
 // Initialize defaults for initial render
 mineralPatches = makeMineralPatches();
+gasGeysers = makeGasGeysers();
 towers = makeTowers();
 
 // Initial render
