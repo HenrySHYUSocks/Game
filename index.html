@@ -274,8 +274,8 @@ let enemyBuildings = [];
 // ---- Unit Definitions ----
 const UNIT_DEFS = {
   // TERRAN
-  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:280, dmg:35, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine', buildTime:3 },
-  marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:500, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, color:'#336699', name:'Marauder', buildTime:4 },
+  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:250, dmg:35, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine', buildTime:3 },
+  marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:450, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, color:'#336699', name:'Marauder', buildTime:4 },
   medic:        { faction:'terran', cost:75,  gasCost:25,  supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:3 },
   siegetank:    { faction:'terran', cost:200, gasCost:100, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:6 },
   ghost:        { faction:'terran', cost:175, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost', buildTime:5 },
@@ -284,9 +284,9 @@ const UNIT_DEFS = {
   medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, color:'#aaddff', name:'Medivac', healer:true, healAmt:30, buildTime:5, isAir:true },
   battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, color:'#3366aa', name:'Battlecruiser', splash:20, buildTime:10, isAir:true },
   // PROTOSS
-  zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:400, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
-  stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
-  sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:100, buildTime:3 },
+  zealot:       { faction:'protoss', cost:75,  gasCost:0,   supply:1, hp:450, dmg:50, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:3 },
+  stalker:      { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:350, dmg:45, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:4 },
+  sentry:       { faction:'protoss', cost:100, gasCost:50,  supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:120, buildTime:3 },
   hightemplar:  { faction:'protoss', cost:200, gasCost:150, supply:3, hp:280, dmg:150,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:50, buildTime:6 },
   immortal:     { faction:'protoss', cost:175, gasCost:100, supply:3, hp:600, dmg:70, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:5 },
   probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
@@ -294,9 +294,9 @@ const UNIT_DEFS = {
   voidray:      { faction:'protoss', cost:250, gasCost:150, supply:3, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, color:'#ffdd44', name:'Void Ray', buildTime:7, isAir:true },
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:10, isAir:true },
   // ZERG
-  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:150, dmg:25, speed:2.0, range:18,  atkSpeed:0.5, count:6, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
-  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:450, dmg:30, speed:1.0, range:80,  atkSpeed:0.9, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
-  hydralisk:    { faction:'zerg', cost:125, gasCost:25,  supply:2, hp:300, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:4 },
+  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:170, dmg:25, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  color:'#ff4444', name:'Zergling', buildTime:2 },
+  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:500, dmg:35, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:3 },
+  hydralisk:    { faction:'zerg', cost:125, gasCost:25,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:4 },
   baneling:     { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:3, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:3 },
   ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25, buildTime:8 },
   drone:        { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3, buildTime:2 },
