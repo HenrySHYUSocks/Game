@@ -199,7 +199,7 @@ const CARRY_AMOUNT = 5;
 // ---- Gas System ----
 let playerGas = 0;
 let enemyGas = 0;
-const GAS_PER_WORKER_PER_SEC = 0.91; // ~163 gas/min with 3 workers (real SC2 rate)
+const GAS_PER_WORKER_PER_SEC = 1.1; // ~198 gas/min with 3 workers (boosted for mobile pace)
 
 // ---- Supply System ----
 let playerSupply = 0;
@@ -486,16 +486,18 @@ function getAvailableBuildings(team) {
       available.push(btype);
       continue;
     }
-    // Gas buildings: allow up to 2 (one per geyser)
+    // Gas buildings: allow up to 4 (2 base + 2 expansion)
     if (bdef.gasBuilding) {
       const gasCount = buildings.filter(b => b.type === btype).length;
-      if (gasCount >= 2) continue;
+      const team = buildings === playerBuildings ? 'player' : 'enemy';
+      const maxGas = hasExpansion(team) ? 4 : 2;
+      if (gasCount >= maxGas) continue;
       available.push(btype);
       continue;
     }
-    // Other buildings: only one allowed
-    const exists = buildings.some(b => b.type === btype);
-    if (exists) continue;
+    // Production buildings: allow up to 3 of each
+    const buildingCount = buildings.filter(b => b.type === btype).length;
+    if (buildingCount >= 3) continue;
     // Check prerequisite
     if (bdef.requires) {
       const hasReq = buildings.some(b => b.type === bdef.requires && b.built);
@@ -612,6 +614,8 @@ function startGame(faction) {
   playerRallyY = GAME_H - 250;
   enemyStance = 'attack';
   aiTimer = 0;
+  aiArmyValue = 0;
+  aiLastAttackTime = 0;
   cameraY = GAME_H - VIEWPORT_H; // Start viewing player base
   cameraAutoFollow = true;
 
@@ -650,13 +654,12 @@ function findNearestPatch(unit) {
 function findTarget(unit) {
   const isPlayer = unit.team === 'player';
 
-  // Player units: only engage within engagement radius of self (not across the map)
-  // This keeps units from wandering off chasing enemies far from rally
+  // Units engage within range + chase distance (prevents wandering across map)
   let maxRange;
-  if (isPlayer && !unit.worker) {
-    maxRange = unit.range + 80; // engage within attack range + small chase distance
+  if (unit.worker) {
+    maxRange = 0; // workers don't fight
   } else {
-    maxRange = Infinity;
+    maxRange = unit.range + 100;
   }
 
   let best = null;
@@ -710,6 +713,18 @@ function updateWorker(unit, dt) {
   const moveSpeed = unit.speed * 60;
 
   switch (unit.miningState) {
+    case 'rally': {
+      // Move to rally point, then start mining from there
+      const dx = unit.rallyX - unit.x;
+      const dy = unit.rallyY - unit.y;
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d < 20) {
+        unit.miningState = 'idle';
+      } else {
+        moveWithSlide(unit, (dx/d) * moveSpeed, (dy/d) * moveSpeed, dt);
+      }
+      break;
+    }
     case 'idle': {
       // Find nearest mineral patch
       const patch = findNearestPatch(unit);
@@ -783,12 +798,16 @@ function getBuildingForUnit(unitType, buildings) {
     }
     return base;
   }
+  // Find building with shortest queue that can produce this unit
+  let best = null, bestQ = Infinity;
   for (const b of buildings) {
     if (!b.built) continue;
     const bdef = BUILDING_DEFS[b.type];
-    if (bdef && bdef.unlocks && bdef.unlocks.includes(unitType)) return b;
+    if (bdef && bdef.unlocks && bdef.unlocks.includes(unitType)) {
+      if (b.queue.length < bestQ) { bestQ = b.queue.length; best = b; }
+    }
   }
-  return null;
+  return best;
 }
 
 // Process all building queues for a team
@@ -1259,123 +1278,221 @@ function spawnParticle(x, y, color, count) {
 
 // ---- Enemy AI ----
 let aiTimer = 0;
+let aiArmyValue = 0;
+let aiLastAttackTime = 0;
+
+function getArmyValue(team) {
+  let value = 0;
+  for (const u of units) {
+    if (u.dead || u.team !== team || u.worker) continue;
+    const def = UNIT_DEFS[u.type];
+    value += def.cost + (def.gasCost || 0);
+  }
+  return value;
+}
+
+function getPlayerComposition() {
+  const comp = { air: 0, ground: 0, ranged: 0, melee: 0, total: 0 };
+  for (const u of units) {
+    if (u.dead || u.team !== 'player' || u.worker) continue;
+    comp.total++;
+    if (u.isAir) comp.air++; else comp.ground++;
+    if (u.range > 40) comp.ranged++; else comp.melee++;
+  }
+  return comp;
+}
+
+// Unit priority weights for smarter composition
+function getUnitWeight(unitType, playerComp) {
+  const def = UNIT_DEFS[unitType];
+  let weight = 1;
+  // Prefer anti-air when player has lots of air
+  if (playerComp.air > 2) {
+    if (def.isAir || def.range > 100) weight += 3;
+  }
+  // Prefer splash damage vs masses of units
+  if (playerComp.total > 8) {
+    if (def.splash) weight += 2;
+  }
+  // Prefer ranged vs melee-heavy compositions
+  if (playerComp.melee > playerComp.ranged) {
+    if (def.range > 80) weight += 1;
+  }
+  // Prefer cheap units early game, expensive later
+  if (gameTime < 60) {
+    if (def.cost <= 100) weight += 2;
+  } else if (gameTime > 180) {
+    if (def.cost >= 200) weight += 1;
+  }
+  // Healers are valuable but don't need many
+  if (def.healer) {
+    const healerCount = units.filter(u => !u.dead && u.team === 'enemy' && u.healer).length;
+    weight = healerCount < 2 ? 3 : 0;
+  }
+  return weight;
+}
+
+function aiBuildUnit(unitType) {
+  const def = UNIT_DEFS[unitType];
+  const building = getBuildingForUnit(unitType, enemyBuildings);
+  if (building && building.queue.length < 3) {
+    enemyMinerals -= def.cost;
+    enemyGas -= (def.gasCost || 0);
+    building.queue.push({ type: unitType, timeLeft: def.buildTime, totalTime: def.buildTime });
+    return true;
+  }
+  return false;
+}
+
+function aiBuildBuilding(btype) {
+  const bdef = BUILDING_DEFS[btype];
+  const gasCost = bdef.gasCost || 0;
+  if (enemyMinerals >= bdef.cost && enemyGas >= gasCost) {
+    enemyMinerals -= bdef.cost;
+    enemyGas -= gasCost;
+    const bx = 50 + enemyBuildings.length * 35;
+    enemyBuildings.push({
+      type: btype, x: bx, y: 140,
+      hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
+    });
+    return true;
+  }
+  return false;
+}
+
 function updateEnemyAI(dt) {
   aiTimer -= dt;
   if (aiTimer > 0) return;
-  aiTimer = 1.0 + Math.random() * 1.5;
+  aiTimer = 0.6 + Math.random() * 0.8; // Faster decisions
 
   const workerCount = units.filter(u => !u.dead && u.team === 'enemy' && u.worker).length;
   const workerType = WORKER_TYPE[enemyFaction];
   const workerDef = UNIT_DEFS[workerType];
   const baseBuilding = enemyBuildings.find(b => b.type === '_base');
+  const playerArmy = getArmyValue('player');
+  const enemyArmy = getArmyValue('enemy');
+  const playerComp = getPlayerComposition();
 
-  // Phase 0: Build supply when near cap
-  if (enemySupply >= enemySupplyMax - 3) {
+  // Dynamic stance: defend when base is threatened, attack when strong
+  const baseHP = towers.enemy.base.hp;
+  const baseMaxHP = towers.enemy.base.maxHp;
+  const nearBase = units.filter(u => !u.dead && u.team === 'player' && !u.worker && u.y < 300).length;
+  if (nearBase >= 2 || baseHP < baseMaxHP * 0.7) {
+    enemyStance = 'defend';
+  } else if (enemyArmy > playerArmy * 1.2 || gameTime - aiLastAttackTime > 60) {
+    enemyStance = 'attack';
+    aiLastAttackTime = gameTime;
+  }
+
+  // ---- Supply: build proactively ----
+  if (enemySupply >= enemySupplyMax - 5) {
     const supplyType = FACTION_SUPPLY[enemyFaction];
     const supplyDef = BUILDING_DEFS[supplyType];
-    const hasSupplyBuilding = enemyBuildings.some(b => b.type === supplyType && !b.built);
-    if (!hasSupplyBuilding && enemyMinerals >= supplyDef.cost) {
+    const pendingSupply = enemyBuildings.filter(b => b.type === supplyType && !b.built).length;
+    if (pendingSupply < 2 && enemyMinerals >= supplyDef.cost) {
       enemyMinerals -= supplyDef.cost;
       const bx = 50 + enemyBuildings.length * 35;
       enemyBuildings.push({
         type: supplyType, x: bx, y: 140,
         hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: supplyDef.buildTime, queue: [],
       });
-      return;
     }
   }
 
-  // Phase 0.5: Build gas refineries (on each geyser)
+  // ---- Gas refineries ----
   const gasType = FACTION_GAS[enemyFaction];
   const gasCount = enemyBuildings.filter(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding).length;
-  if (gasCount < 2 && gameTime > (gasCount === 0 ? 15 : 60) && enemyMinerals >= BUILDING_DEFS[gasType].cost) {
-    const geyser = gasGeysers.enemy[gasCount]; // first or second geyser
-    enemyMinerals -= BUILDING_DEFS[gasType].cost;
-    enemyBuildings.push({
-      type: gasType, x: geyser.x, y: geyser.y,
-      hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: BUILDING_DEFS[gasType].buildTime, queue: [],
-    });
-    // AI auto-assigns 3 workers to each refinery when built
-    geyser.workers = 3;
-    return;
+  if (gameTime > 12) {
+    const maxGas = hasExpansion('enemy') ? 4 : 2;
+    if (gasCount < maxGas && enemyMinerals >= BUILDING_DEFS[gasType].cost) {
+      const availGeysers = gasGeysers.enemy.filter(g => (!g.expansion || hasExpansion('enemy')) && !hasRefineryOnGeyser(g, 'enemy'));
+      if (availGeysers.length > 0) {
+        const geyser = availGeysers[0];
+        enemyMinerals -= BUILDING_DEFS[gasType].cost;
+        enemyBuildings.push({
+          type: gasType, x: geyser.x, y: geyser.y,
+          hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: BUILDING_DEFS[gasType].buildTime, queue: [],
+        });
+        geyser.workers = 3;
+      }
+    }
   }
 
-  // Phase 1: Build economy (workers from base)
-  if (workerCount < 8 && canAffordUnit(workerType, 'enemy') && baseBuilding && baseBuilding.queue.length < 2) {
-    enemyMinerals -= workerDef.cost;
-    baseBuilding.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
-    return;
+  // ---- Workers: scale with economy ----
+  const maxWorkers = hasExpansion('enemy') ? 20 : 12;
+  if (workerCount < maxWorkers && canAffordUnit(workerType, 'enemy')) {
+    // Build workers from base or expansion
+    const workerBuilding = getBuildingForUnit(workerType, enemyBuildings);
+    if (workerBuilding && workerBuilding.queue.length < 2) {
+      enemyMinerals -= workerDef.cost;
+      workerBuilding.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
+    }
   }
 
-  // Phase 1.5: Build expansion base after some time
+  // ---- Expansion: earlier and smarter ----
   const expansionType = FACTION_EXPANSION[enemyFaction];
   const enemyHasExpansion = enemyBuildings.some(b => b.type === expansionType);
-  if (!enemyHasExpansion && gameTime > 90 && enemyMinerals >= 400) {
+  if (!enemyHasExpansion && gameTime > 55 && enemyMinerals >= 400) {
     enemyMinerals -= 400;
     enemyBuildings.push({
       type: expansionType, x: ARENA_W / 2, y: RIVER_Y - 150,
       hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
     });
-    return;
   }
 
-  // Phase 1.7: Build expansion gas refineries after expansion is built
-  if (hasExpansion('enemy') && gasCount < 4 && gasCount >= 2 && enemyMinerals >= BUILDING_DEFS[gasType].cost) {
-    const expGeysers = gasGeysers.enemy.filter(g => g.expansion && !hasRefineryOnGeyser(g, 'enemy'));
-    if (expGeysers.length > 0) {
-      const geyser = expGeysers[0];
-      enemyMinerals -= BUILDING_DEFS[gasType].cost;
-      enemyBuildings.push({
-        type: gasType, x: geyser.x, y: geyser.y,
-        hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: BUILDING_DEFS[gasType].buildTime, queue: [],
-      });
-      geyser.workers = 3;
-      return;
-    }
-  }
-
-  // Phase 2: Build production buildings (skip supply/gas/expansion — handled above)
-  const availBuildings = getAvailableBuildings('enemy').filter(bt => {
+  // ---- Production buildings: build duplicates for faster production ----
+  const prodBuildings = getAvailableBuildings('enemy').filter(bt => {
     const bd = BUILDING_DEFS[bt];
     return !bd.supplyCap && !bd.gasBuilding && !bd.isExpansion;
   });
-  if (availBuildings.length > 0) {
-    const btype = availBuildings[0];
+
+  // Prioritize first production building, then add duplicates
+  for (const btype of prodBuildings) {
     const bdef = BUILDING_DEFS[btype];
+    const count = enemyBuildings.filter(b => b.type === btype).length;
     const gasCost = bdef.gasCost || 0;
-    if (enemyMinerals >= bdef.cost && enemyGas >= gasCost) {
-      enemyMinerals -= bdef.cost;
-      enemyGas -= gasCost;
-      const bx = 50 + enemyBuildings.length * 35;
-      enemyBuildings.push({
-        type: btype, x: bx, y: 140,
-        hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-      });
-      return;
+    // Build first copy ASAP, second copy after some army, third late game
+    let shouldBuild = false;
+    if (count === 0) shouldBuild = true;
+    else if (count === 1 && gameTime > 90 && enemyMinerals > 300) shouldBuild = true;
+    else if (count === 2 && gameTime > 200 && enemyMinerals > 500) shouldBuild = true;
+    if (shouldBuild && enemyMinerals >= bdef.cost && enemyGas >= gasCost) {
+      aiBuildBuilding(btype);
+      break; // Only one building per decision cycle
     }
   }
 
-  // Phase 3: Build combat units (supply + gas aware)
+  // ---- Combat units: weighted selection based on player composition ----
   const availUnits = getAvailableUnits('enemy');
   const combatUnits = availUnits.filter(u => !UNIT_DEFS[u].worker);
-  if (combatUnits.length > 0) {
-    const affordable = combatUnits.filter(u => canAffordUnit(u, 'enemy'));
-    if (affordable.length > 0) {
-      const pick = affordable[Math.floor(Math.random() * affordable.length)];
-      const building = getBuildingForUnit(pick, enemyBuildings);
-      if (building && building.queue.length < 3) {
-        const def = UNIT_DEFS[pick];
-        enemyMinerals -= def.cost;
-        enemyGas -= (def.gasCost || 0);
-        building.queue.push({ type: pick, timeLeft: def.buildTime, totalTime: def.buildTime });
+  const affordable = combatUnits.filter(u => canAffordUnit(u, 'enemy'));
+  if (affordable.length > 0) {
+    // Build units from ALL available production buildings
+    const productionSlots = enemyBuildings.filter(b => {
+      if (!b.built || b.queue.length >= 3) return false;
+      const bdef = BUILDING_DEFS[b.type];
+      return bdef && bdef.unlocks && bdef.unlocks.length > 0;
+    });
+
+    for (const slot of productionSlots) {
+      if (slot.queue.length >= 3) continue;
+      const bdef = BUILDING_DEFS[slot.type];
+      const slotUnits = affordable.filter(u => bdef.unlocks.includes(u));
+      if (slotUnits.length === 0) continue;
+
+      // Weighted random pick
+      const weights = slotUnits.map(u => getUnitWeight(u, playerComp));
+      const totalWeight = weights.reduce((a,b) => a+b, 0);
+      let roll = Math.random() * totalWeight;
+      let pick = slotUnits[0];
+      for (let i = 0; i < slotUnits.length; i++) {
+        roll -= weights[i];
+        if (roll <= 0) { pick = slotUnits[i]; break; }
+      }
+      if (canAffordUnit(pick, 'enemy')) {
+        aiBuildUnit(pick);
       }
     }
-  }
-
-  // Keep building workers up to 12
-  if (workerCount < 12 && canAffordUnit(workerType, 'enemy') && baseBuilding && baseBuilding.queue.length < 2) {
-    enemyMinerals -= workerDef.cost;
-    baseBuilding.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
   }
 }
 
@@ -3683,6 +3800,15 @@ function handleInput(x, y) {
     const worldY = y + cameraY;
     playerRallyX = Math.max(25, Math.min(ARENA_W - 25, x));
     playerRallyY = Math.max(30, Math.min(GAME_H - 30, worldY));
+    // Send idle/mining workers to rally point (so player can move workers between bases)
+    for (const u of units) {
+      if (u.dead || u.team !== 'player' || !u.worker) continue;
+      if (u.miningState === 'idle' || u.miningState === 'toMineral') {
+        u.miningState = 'rally';
+        u.rallyX = playerRallyX;
+        u.rallyY = playerRallyY;
+      }
+    }
   }
 }
 
