@@ -1107,7 +1107,7 @@ function updateWorker(unit, dt) {
       const d = dist(unit, unit.assignedPatch);
       if (d < 12) {
         unit.miningState = 'mining';
-        unit.miningTimer = MINE_TIME;
+        unit.miningTimer = unit.mineRate > 0.3 ? MINE_TIME * 0.3 / unit.mineRate : MINE_TIME;
       } else {
         const angle = Math.atan2(unit.assignedPatch.y - unit.y, unit.assignedPatch.x - unit.x);
         moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
@@ -1545,6 +1545,7 @@ function updateGame(dt) {
       let best = null, bestD = Infinity;
       for (const u of units) {
         if (u.dead || u.team === t.team) continue;
+        if (u.cloaked && !isDetected(u, t.team)) continue;
         const d = dist(t, u);
         if (d < t.range && d < bestD) { bestD = d; best = u; }
       }
@@ -2099,8 +2100,15 @@ function aiBuildUnit(unitType) {
   const P = AI_PARAMS[aiDifficulty];
   const building = getBuildingForUnit(unitType, enemyBuildings);
   if (building && building.queue.length < P.maxQueue) {
-    enemyMinerals -= def.cost;
-    enemyGas -= (def.gasCost || 0);
+    let cost = def.cost;
+    let gasCost = def.gasCost || 0;
+    // Zerg Spawn Larva: 20% cost reduction
+    if (enemyFaction === 'zerg') {
+      const base = enemyBuildings.find(b => b.type === '_base' && b.larvaeBonus > 0);
+      if (base) { cost = Math.floor(cost * 0.8); gasCost = Math.floor(gasCost * 0.8); base.larvaeBonus--; }
+    }
+    enemyMinerals -= cost;
+    enemyGas -= gasCost;
     building.queue.push({ type: unitType, timeLeft: def.buildTime, totalTime: def.buildTime });
     return true;
   }
@@ -2793,6 +2801,16 @@ function drawSC2Unit(type, cx, cy, r, dir, color, team, anim) {
     case 'mutalisk': drawMutaliskUnit(cx, cy, r, dir, color, anim); break;
     case 'corruptor': drawCorruptorUnit(cx, cy, r, dir, color, anim); break;
     case 'broodlord': drawBroodLordUnit(cx, cy, r, dir, color, anim); break;
+    case 'thor': drawThorUnit(cx, cy, r, dir, color, anim); break;
+    case 'raven': drawRavenUnit(cx, cy, r, dir, color, anim); break;
+    case 'darktemplar': drawDarkTemplarUnit(cx, cy, r, dir, color, anim); break;
+    case 'observer': drawObserverUnit(cx, cy, r, dir, color, anim); break;
+    case 'infestor': drawInfestorUnit(cx, cy, r, dir, color, anim); break;
+    case 'overseer': drawOverseerUnit(cx, cy, r, dir, color, anim); break;
+    case 'colossus': drawColossusUnit(cx, cy, r, dir, color, anim); break;
+    case 'reaper': drawReaperUnit(cx, cy, r, dir, color, anim); break;
+    case 'hellion': drawHellionUnit(cx, cy, r, dir, color, anim); break;
+    case 'banshee': drawBansheeUnit(cx, cy, r, dir, color, anim); break;
     default:
       ctx.fillStyle = color;
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
@@ -4023,6 +4041,197 @@ function drawBroodLordUnit(cx, cy, r, dir, color, anim) {
   ctx.beginPath(); ctx.arc(cx + s*1, cy - s*5.5*dir, s*0.6, 0, Math.PI*2); ctx.fill();
 }
 
+function drawThorUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 14;
+  // Heavy mech legs
+  ctx.fillStyle = shadeColor(color, -40);
+  ctx.fillRect(cx - s*7, cy + s*4, s*4, s*8);
+  ctx.fillRect(cx + s*3, cy + s*4, s*4, s*8);
+  // Wide torso
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - s*8, cy - s*4, s*16, s*10);
+  // Shoulder cannons
+  ctx.fillStyle = shadeColor(color, 20);
+  ctx.fillRect(cx - s*11, cy - s*6, s*5, s*4);
+  ctx.fillRect(cx + s*6, cy - s*6, s*5, s*4);
+  // Cannon barrels
+  ctx.fillStyle = '#555';
+  ctx.fillRect(cx - s*12, cy - s*8*dir, s*2, s*5);
+  ctx.fillRect(cx + s*10, cy - s*8*dir, s*2, s*5);
+  // Head
+  ctx.fillStyle = '#aabbcc';
+  ctx.beginPath(); ctx.arc(cx, cy - s*3, s*3, 0, Math.PI*2); ctx.fill();
+  // Eye
+  ctx.fillStyle = '#44aaff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*3 - s*dir, s*1, 0, Math.PI*2); ctx.fill();
+}
+
+function drawRavenUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  const bob = Math.sin(anim*3)*s;
+  // Wings
+  ctx.fillStyle = shadeColor(color, -20);
+  ctx.beginPath();
+  ctx.moveTo(cx - s*2, cy); ctx.lineTo(cx - s*9, cy + s*3 + bob); ctx.lineTo(cx - s*7, cy - s*1 + bob); ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*2, cy); ctx.lineTo(cx + s*9, cy + s*3 - bob); ctx.lineTo(cx + s*7, cy - s*1 - bob); ctx.closePath(); ctx.fill();
+  // Body
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.ellipse(cx, cy, s*4, s*3, 0, 0, Math.PI*2); ctx.fill();
+  // Sensor dish
+  ctx.fillStyle = '#44ddff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*2*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+}
+
+function drawDarkTemplarUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  // Body (dark, shadowy)
+  ctx.fillStyle = '#332255';
+  ctx.beginPath(); ctx.ellipse(cx, cy, s*4, s*5, 0, 0, Math.PI*2); ctx.fill();
+  // Warp blade
+  ctx.fillStyle = '#aa44ff';
+  ctx.globalAlpha = 0.6 + Math.sin(anim*5)*0.3;
+  ctx.fillRect(cx + s*2, cy - s*8*dir, s*1.5, s*6);
+  ctx.globalAlpha = 1;
+  // Head
+  ctx.fillStyle = '#554488';
+  ctx.beginPath(); ctx.arc(cx, cy - s*4*dir, s*2.5, 0, Math.PI*2); ctx.fill();
+  // Eyes (sinister green)
+  ctx.fillStyle = '#44ff88';
+  ctx.beginPath(); ctx.arc(cx - s*1, cy - s*4.5*dir, s*0.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1, cy - s*4.5*dir, s*0.5, 0, Math.PI*2); ctx.fill();
+}
+
+function drawObserverUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 5;
+  const bob = Math.sin(anim*4)*s*0.5;
+  // Small diamond shape
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s*3 + bob); ctx.lineTo(cx + s*3, cy + bob); ctx.lineTo(cx, cy + s*3 + bob); ctx.lineTo(cx - s*3, cy + bob);
+  ctx.closePath(); ctx.fill();
+  // Center eye
+  ctx.fillStyle = '#44aaff';
+  ctx.beginPath(); ctx.arc(cx, cy + bob, s*1, 0, Math.PI*2); ctx.fill();
+}
+
+function drawInfestorUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 10;
+  const squirm = Math.sin(anim*3)*s;
+  // Fat body
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.ellipse(cx + squirm*0.5, cy, s*6, s*5, 0, 0, Math.PI*2); ctx.fill();
+  // Tentacles
+  ctx.strokeStyle = shadeColor(color, 20);
+  ctx.lineWidth = s*1.5;
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx + i*s*2, cy + s*4*dir);
+    ctx.lineTo(cx + i*s*2 + Math.sin(anim*4+i)*s*2, cy + s*7*dir);
+    ctx.stroke();
+  }
+  // Eyes
+  ctx.fillStyle = '#ccff44';
+  ctx.beginPath(); ctx.arc(cx - s*1.5, cy - s*2*dir, s*1, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1.5, cy - s*2*dir, s*1, 0, Math.PI*2); ctx.fill();
+}
+
+function drawOverseerUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  const bob = Math.sin(anim*3)*s;
+  // Blimp body
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.ellipse(cx, cy + bob, s*6, s*4, 0, 0, Math.PI*2); ctx.fill();
+  // Tendrils
+  ctx.strokeStyle = shadeColor(color, -20);
+  ctx.lineWidth = s;
+  ctx.beginPath(); ctx.moveTo(cx-s*2, cy+s*4+bob); ctx.lineTo(cx-s*3, cy+s*7+bob); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx+s*2, cy+s*4+bob); ctx.lineTo(cx+s*3, cy+s*7+bob); ctx.stroke();
+  // Eye
+  ctx.fillStyle = '#ff6644';
+  ctx.beginPath(); ctx.arc(cx, cy - s*1 + bob, s*2, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#ffaa44';
+  ctx.beginPath(); ctx.arc(cx, cy - s*1 + bob, s*1, 0, Math.PI*2); ctx.fill();
+}
+
+function drawColossusUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 12;
+  // Tall legs
+  ctx.strokeStyle = shadeColor(color, -30);
+  ctx.lineWidth = s*1.5;
+  ctx.beginPath(); ctx.moveTo(cx-s*4, cy+s*2); ctx.lineTo(cx-s*6, cy+s*10); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx+s*4, cy+s*2); ctx.lineTo(cx+s*6, cy+s*10); ctx.stroke();
+  // Body
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.ellipse(cx, cy, s*5, s*4, 0, 0, Math.PI*2); ctx.fill();
+  // Thermal lances
+  ctx.fillStyle = '#ff6622';
+  ctx.globalAlpha = 0.5 + Math.sin(anim*6)*0.3;
+  ctx.fillRect(cx - s*8, cy - s*2*dir, s*16, s*1);
+  ctx.globalAlpha = 1;
+  // Head
+  ctx.fillStyle = shadeColor(color, 20);
+  ctx.beginPath(); ctx.arc(cx, cy - s*3*dir, s*2, 0, Math.PI*2); ctx.fill();
+}
+
+function drawReaperUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  // Jetpack flames
+  ctx.fillStyle = '#ff6600';
+  ctx.globalAlpha = 0.5 + Math.sin(anim*8)*0.3;
+  ctx.beginPath(); ctx.arc(cx - s*2, cy + s*5*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*2, cy + s*5*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+  ctx.globalAlpha = 1;
+  // Body
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.ellipse(cx, cy, s*3.5, s*4, 0, 0, Math.PI*2); ctx.fill();
+  // Jetpack
+  ctx.fillStyle = shadeColor(color, -30);
+  ctx.fillRect(cx - s*3, cy + s*1, s*6, s*3);
+  // Head
+  ctx.fillStyle = '#ddd';
+  ctx.beginPath(); ctx.arc(cx, cy - s*3*dir, s*2, 0, Math.PI*2); ctx.fill();
+  // Visor
+  ctx.fillStyle = '#44aaff';
+  ctx.fillRect(cx - s*1.5, cy - s*3.5*dir, s*3, s*1);
+}
+
+function drawHellionUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  // Wheels
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.arc(cx - s*3, cy + s*3, s*2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*3, cy + s*3, s*2, 0, Math.PI*2); ctx.fill();
+  // Body
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - s*4, cy - s*2, s*8, s*5);
+  // Flamethrower
+  ctx.fillStyle = '#ff4400';
+  ctx.globalAlpha = 0.5 + Math.sin(anim*6)*0.3;
+  ctx.fillRect(cx - s*1, cy - s*6*dir, s*2, s*4);
+  ctx.globalAlpha = 1;
+  // Cockpit
+  ctx.fillStyle = '#88ccff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*1, s*2, 0, Math.PI*2); ctx.fill();
+}
+
+function drawBansheeUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 9;
+  const bob = Math.sin(anim*4)*s;
+  // Wings (swept back)
+  ctx.fillStyle = shadeColor(color, -20);
+  ctx.beginPath();
+  ctx.moveTo(cx - s*2, cy); ctx.lineTo(cx - s*8, cy + s*4 + bob); ctx.lineTo(cx - s*6, cy + s*1 + bob); ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + s*2, cy); ctx.lineTo(cx + s*8, cy + s*4 - bob); ctx.lineTo(cx + s*6, cy + s*1 - bob); ctx.closePath(); ctx.fill();
+  // Body
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.ellipse(cx, cy, s*3.5, s*4, 0, 0, Math.PI*2); ctx.fill();
+  // Cockpit
+  ctx.fillStyle = '#44aaff';
+  ctx.beginPath(); ctx.arc(cx, cy - s*2*dir, s*1.5, 0, Math.PI*2); ctx.fill();
+}
+
 function drawPolygon(ctx, cx, cy, r, sides, color) {
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -4153,6 +4362,7 @@ function drawBuildings() {
     const bdef = BUILDING_DEFS[b.type];
     const isPlayer = playerBuildings.includes(b);
     const teamColor = isPlayer ? FACTION_COLORS[playerFaction].primary : FACTION_COLORS[enemyFaction].primary;
+    const isExpBase = bdef.isExpansion || bdef.isThirdExpansion;
 
     // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -4163,7 +4373,11 @@ function drawBuildings() {
       ctx.strokeStyle = teamColor;
       ctx.lineWidth = 1;
       ctx.globalAlpha = 0.4 + (b.buildProgress / b.buildTime) * 0.4;
-      roundRect(ctx, b.x - bdef.r, b.y - bdef.r*0.7, bdef.r*2, bdef.r*1.4, 3, false, true);
+      if (isExpBase) {
+        ctx.beginPath(); ctx.arc(b.x, b.y, bdef.r, 0, Math.PI * 2); ctx.stroke();
+      } else {
+        roundRect(ctx, b.x - bdef.r, b.y - bdef.r*0.7, bdef.r*2, bdef.r*1.4, 3, false, true);
+      }
       // Build progress bar
       ctx.globalAlpha = 1;
       const barW = bdef.r * 2;
@@ -4171,8 +4385,31 @@ function drawBuildings() {
       ctx.fillRect(b.x - barW/2, b.y - bdef.r - 8, barW, 4);
       ctx.fillStyle = '#ffaa00';
       ctx.fillRect(b.x - barW/2, b.y - bdef.r - 8, barW * (b.buildProgress / b.buildTime), 4);
+    } else if (isExpBase) {
+      // Draw expansion bases like the main HQ (circle with team ring)
+      const grad = ctx.createRadialGradient(b.x - 3, b.y - 3, 2, b.x, b.y, bdef.r);
+      grad.addColorStop(0, '#667788');
+      grad.addColorStop(1, '#223344');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(b.x, b.y, bdef.r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = teamColor;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(b.x, b.y, bdef.r, 0, Math.PI * 2); ctx.stroke();
+      // HP bar
+      const barW = bdef.r * 2.2;
+      const hpFrac = b.hp / b.maxHp;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(b.x - barW / 2, b.y - bdef.r - 10, barW, 5);
+      ctx.fillStyle = hpFrac > 0.5 ? '#44dd44' : hpFrac > 0.25 ? '#ddaa00' : '#dd3333';
+      ctx.fillRect(b.x - barW / 2, b.y - bdef.r - 10, barW * hpFrac, 5);
+      // Label
+      ctx.fillStyle = teamColor;
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('HQ', b.x, b.y);
     } else {
-      // Built structure
+      // Built structure (non-expansion)
       const grad = ctx.createRadialGradient(b.x-2, b.y-2, 2, b.x, b.y, bdef.r);
       grad.addColorStop(0, shadeColor(teamColor, 20));
       grad.addColorStop(1, shadeColor(teamColor, -60));
@@ -4975,8 +5212,15 @@ function handleInput(x, y) {
       if (def && canAffordUnit(btn.type, 'player')) {
         const building = getBuildingForUnit(btn.type, playerBuildings);
         if (building && building.queue.length < 5) {
-          playerMinerals -= def.cost;
-          playerGas -= (def.gasCost || 0);
+          let cost = def.cost;
+          let gasCost = def.gasCost || 0;
+          // Zerg Spawn Larva: 20% cost reduction
+          if (playerFaction === 'zerg') {
+            const base = playerBuildings.find(b => b.type === '_base' && b.larvaeBonus > 0);
+            if (base) { cost = Math.floor(cost * 0.8); gasCost = Math.floor(gasCost * 0.8); base.larvaeBonus--; }
+          }
+          playerMinerals -= cost;
+          playerGas -= gasCost;
           building.queue.push({ type: btn.type, timeLeft: def.buildTime, totalTime: def.buildTime });
         }
       }
