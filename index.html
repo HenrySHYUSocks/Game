@@ -999,6 +999,19 @@ function findNearestPatch(unit) {
     const d = dist(unit, p);
     if (d < bestD) { bestD = d; best = p; }
   }
+  // If no local patches have minerals, reassign to another base with minerals
+  if (!best) {
+    const bases = getTeamBases(team);
+    for (const base of bases) {
+      if (unit.homeBase && Math.abs(unit.homeBase.x - base.x) < 50 && Math.abs(unit.homeBase.y - base.y) < 50) continue;
+      const otherPatches = getPatchesForBase(base, team);
+      for (const p of otherPatches) {
+        if (p.minerals <= 0) continue;
+        unit.homeBase = { x: base.x, y: base.y };
+        return p;
+      }
+    }
+  }
   return best;
 }
 
@@ -1085,33 +1098,109 @@ function findNearestBase(unit) {
   return { x: bestX, y: bestY };
 }
 
-// Auto-redistribute workers when a new base completes — send excess to new base
-function autoRedistributeWorkers(team, newBase) {
-  const workers = units.filter(u => !u.dead && u.team === team && u.worker && !u.assignedGeyser &&
-    (u.miningState === 'idle' || u.miningState === 'toMineral' || u.miningState === 'mining'));
-  // Count how many workers are at over-saturated bases (>16 mineral workers)
-  const baseCounts = new Map();
-  for (const w of workers) {
-    const base = findNearestBase(w);
-    const key = `${base.x},${base.y}`;
-    baseCounts.set(key, (baseCounts.get(key) || 0) + 1);
-  }
-  // Send excess workers (those beyond 16 per base) to new base
-  let toSend = 8; // send up to 8 workers to new base
-  for (const w of workers) {
-    if (toSend <= 0) break;
-    const base = findNearestBase(w);
-    const key = `${base.x},${base.y}`;
-    const count = baseCounts.get(key) || 0;
-    if (count > 16) {
-      w.miningState = 'rally';
-      w.rallyX = newBase.x;
-      w.rallyY = newBase.y;
-      w.assignedPatch = null;
-      w.homeBase = { x: newBase.x, y: newBase.y };
-      baseCounts.set(key, count - 1);
-      toSend--;
+// Get all active bases for a team
+function getTeamBases(team) {
+  const buildings = team === 'player' ? playerBuildings : enemyBuildings;
+  const bases = [];
+  // Main base (always exists as _base)
+  bases.push({ x: ARENA_W/2, y: team === 'player' ? PLAYER_BASE_Y : ENEMY_BASE_Y });
+  // Expansion bases
+  for (const b of buildings) {
+    const bdef = BUILDING_DEFS[b.type];
+    if (bdef && (bdef.isExpansion || bdef.isThirdExpansion) && b.built) {
+      bases.push({ x: b.x, y: b.y });
     }
+  }
+  return bases;
+}
+
+// Count mineral workers assigned to a base
+function countBaseWorkers(base, team) {
+  let count = 0;
+  for (const u of units) {
+    if (u.dead || u.team !== team || !u.worker || u.assignedGeyser) continue;
+    if (!u.homeBase) continue;
+    if (Math.abs(u.homeBase.x - base.x) < 50 && Math.abs(u.homeBase.y - base.y) < 50) count++;
+  }
+  return count;
+}
+
+// Get ideal worker count for a base (2 per mineral patch with minerals remaining)
+function getIdealWorkers(base, team) {
+  const patches = getPatchesForBase(base, team);
+  let count = 0;
+  for (const p of patches) { if (p.minerals > 0) count++; }
+  return count * 2; // 2 workers per patch is ideal saturation
+}
+
+// Auto-redistribute workers when a new base completes — send half to new base
+function autoRedistributeWorkers(team, newBase) {
+  const bases = getTeamBases(team);
+  const newIdeal = getIdealWorkers(newBase, team);
+  let toSend = Math.min(newIdeal, 8); // send up to ideal count or 8
+
+  // Find workers at over-saturated bases to transfer
+  for (const base of bases) {
+    if (Math.abs(base.x - newBase.x) < 50 && Math.abs(base.y - newBase.y) < 50) continue;
+    const ideal = getIdealWorkers(base, team);
+    const current = countBaseWorkers(base, team);
+    const excess = current - Math.ceil(ideal / 2); // keep at least half ideal
+    if (excess <= 0) continue;
+
+    const transferable = units.filter(u => !u.dead && u.team === team && u.worker && !u.assignedGeyser &&
+      u.homeBase && Math.abs(u.homeBase.x - base.x) < 50 && Math.abs(u.homeBase.y - base.y) < 50 &&
+      (u.miningState === 'idle' || u.miningState === 'toMineral' || u.miningState === 'mining'));
+
+    const count = Math.min(excess, toSend, transferable.length);
+    for (let i = 0; i < count; i++) {
+      transferable[i].miningState = 'rally';
+      transferable[i].rallyX = newBase.x;
+      transferable[i].rallyY = newBase.y;
+      transferable[i].assignedPatch = null;
+      transferable[i].homeBase = { x: newBase.x, y: newBase.y };
+    }
+    toSend -= count;
+    if (toSend <= 0) break;
+  }
+}
+
+// Continuous worker rebalancing — called each frame, moves workers from over-saturated to under-saturated bases
+let rebalanceTimerPlayer = 0;
+let rebalanceTimerEnemy = 0;
+function rebalanceWorkers(team, dt) {
+  if (team === 'player') { rebalanceTimerPlayer -= dt; if (rebalanceTimerPlayer > 0) return; rebalanceTimerPlayer = 3; }
+  else { rebalanceTimerEnemy -= dt; if (rebalanceTimerEnemy > 0) return; rebalanceTimerEnemy = 3; }
+
+  const bases = getTeamBases(team);
+  if (bases.length <= 1) return;
+
+  // Find the most under-saturated base and most over-saturated base
+  let worstBase = null, worstRatio = Infinity;
+  let bestBase = null, bestRatio = -Infinity;
+  for (const base of bases) {
+    const ideal = getIdealWorkers(base, team);
+    if (ideal <= 0) continue;
+    const current = countBaseWorkers(base, team);
+    const ratio = current / ideal;
+    if (ratio < worstRatio) { worstRatio = ratio; worstBase = base; }
+    if (ratio > bestRatio) { bestRatio = ratio; bestBase = base; }
+  }
+
+  // Transfer if there's a significant imbalance (one base has >1.2x ideal, another <0.8x)
+  if (!worstBase || !bestBase) return;
+  if (bestRatio <= 1.0 || worstRatio >= 0.8) return;
+  if (Math.abs(worstBase.x - bestBase.x) < 50 && Math.abs(worstBase.y - bestBase.y) < 50) return;
+
+  // Transfer one worker from over-saturated to under-saturated
+  const w = units.find(u => !u.dead && u.team === team && u.worker && !u.assignedGeyser &&
+    u.homeBase && Math.abs(u.homeBase.x - bestBase.x) < 50 && Math.abs(u.homeBase.y - bestBase.y) < 50 &&
+    (u.miningState === 'idle' || u.miningState === 'toMineral'));
+  if (w) {
+    w.miningState = 'rally';
+    w.rallyX = worstBase.x;
+    w.rallyY = worstBase.y;
+    w.assignedPatch = null;
+    w.homeBase = { x: worstBase.x, y: worstBase.y };
   }
 }
 
@@ -1152,10 +1241,29 @@ function findAssignedGeyser(unit) {
 function updateWorker(unit, dt) {
   const moveSpeed = unit.speed * 60;
 
-  // Set homeBase on first frame if not set
+  // Set homeBase on first frame if not set — assign to least-saturated base
   if (!unit.homeBase) {
-    const base = findNearestBase(unit);
-    unit.homeBase = { x: base.x, y: base.y };
+    const bases = getTeamBases(unit.team);
+    let bestBase = null, bestRatio = Infinity;
+    for (const base of bases) {
+      const ideal = getIdealWorkers(base, unit.team);
+      if (ideal <= 0) continue;
+      const current = countBaseWorkers(base, unit.team);
+      const ratio = current / ideal;
+      if (ratio < bestRatio) { bestRatio = ratio; bestBase = base; }
+    }
+    if (bestBase) {
+      unit.homeBase = { x: bestBase.x, y: bestBase.y };
+      // If assigned to a different base than where spawned, rally there
+      if (dist(unit, bestBase) > 100) {
+        unit.miningState = 'rally';
+        unit.rallyX = bestBase.x;
+        unit.rallyY = bestBase.y;
+      }
+    } else {
+      const base = findNearestBase(unit);
+      unit.homeBase = { x: base.x, y: base.y };
+    }
   }
 
   switch (unit.miningState) {
@@ -1621,6 +1729,10 @@ function updateGame(dt) {
   // Update per-building production queues
   updateAllBuildingQueues(playerBuildings, 'player', dt);
   updateAllBuildingQueues(enemyBuildings, 'enemy', dt);
+
+  // Rebalance workers between bases
+  rebalanceWorkers('player', dt);
+  rebalanceWorkers('enemy', dt);
 
   // Update buildings (supply cap on complete)
   updateBuildings(playerBuildings, 'player', dt);
