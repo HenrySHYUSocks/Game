@@ -254,8 +254,8 @@ let creepZones = []; // { x, y, radius, team } - Zerg creep areas
 const FOG_CELL = 40; // cell size in game pixels
 const FOG_COLS = Math.ceil(ARENA_W / FOG_CELL);
 const FOG_ROWS = Math.ceil(GAME_H / FOG_CELL);
-const VISION_RANGE = 160; // how far units can see
-const BLDG_VISION = 200; // building sight range
+const VISION_RANGE = 300; // how far units can see
+const BLDG_VISION = 350; // building sight range
 let fogExplored = []; // 2D array: true if ever seen
 let fogVisible = [];  // 2D array: true if currently visible
 
@@ -323,9 +323,9 @@ function drawFog() {
       if (fogVisible[r][c]) continue; // fully visible, skip
       const cellX = c * FOG_CELL;
       if (fogExplored[r][c]) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
       } else {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
       }
       ctx.fillRect(cellX, cellY, FOG_CELL, FOG_CELL);
     }
