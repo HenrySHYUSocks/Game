@@ -160,16 +160,22 @@ function resize() {
   const screenAR = window.innerWidth / window.innerHeight;
   VIEWPORT_H = Math.max(550, Math.min(900, GAME_W / screenAR));
   const ratio = GAME_W / VIEWPORT_H;
+  const dpr = window.devicePixelRatio || 1;
+  // Cap the CSS size so game doesn't blow up on wide screens (tablets/desktops)
+  const maxCSSWidth = 500; // game looks best at phone-width
   if (window.innerWidth / window.innerHeight > ratio) {
-    H = window.innerHeight;
+    H = Math.min(window.innerHeight, maxCSSWidth / ratio);
     W = H * ratio;
   } else {
-    W = window.innerWidth;
+    W = Math.min(window.innerWidth, maxCSSWidth);
     H = W / ratio;
   }
-  canvas.width = W;
-  canvas.height = H;
-  SCALE = W / GAME_W;
+  // Use devicePixelRatio for sharp rendering on high-DPI screens
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  SCALE = (W * dpr) / GAME_W;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -5263,8 +5269,8 @@ function roundRect(ctx, x, y, w, h, r, fill, stroke) {
 // ---- Touch / Input ----
 function gameToCanvas(tx, ty) {
   const rect = canvas.getBoundingClientRect();
-  const cx = (tx - rect.left) / SCALE;
-  const cy = (ty - rect.top) / SCALE;
+  const cx = (tx - rect.left) / rect.width * GAME_W;
+  const cy = (ty - rect.top) / rect.height * VIEWPORT_H;
   return { x: cx, y: cy };
 }
 
