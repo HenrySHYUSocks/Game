@@ -155,21 +155,13 @@ const GAME_H = 3200;   // Bigger map — more room for bases, naturals, and mid-
 let VIEWPORT_H = 700;
 
 function resize() {
-  // Dynamic viewport height: adapts to screen aspect ratio
-  // Narrow phones → taller view, iPads → wider/shorter view filling more screen
-  const screenAR = window.innerWidth / window.innerHeight;
-  VIEWPORT_H = Math.max(550, Math.min(900, GAME_W / screenAR));
-  const ratio = GAME_W / VIEWPORT_H;
-  if (window.innerWidth / window.innerHeight > ratio) {
-    H = window.innerHeight;
-    W = H * ratio;
-  } else {
-    W = window.innerWidth;
-    H = W / ratio;
-  }
+  // Simple approach: game fills screen width, viewport height scales with screen
+  W = window.innerWidth;
+  H = window.innerHeight;
   canvas.width = W;
   canvas.height = H;
   SCALE = W / GAME_W;
+  VIEWPORT_H = H / SCALE;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -309,10 +301,7 @@ function updateFog() {
 }
 
 function isFogVisible(x, y) {
-  const c = Math.floor(x / FOG_CELL);
-  const r = Math.floor(y / FOG_CELL);
-  if (r < 0 || r >= FOG_ROWS || c < 0 || c >= FOG_COLS) return false;
-  return fogVisible[r][c];
+  return true; // Fog of war disabled for now
 }
 
 function drawFog() {
@@ -575,6 +564,8 @@ let gasGeysers;
 // ---- Building System ----
 const BUILDING_DEFS = {
   _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:11 },
+  // Terran: Orbital Command upgrade (applied to main base or CC)
+  orbitalcommand: { faction:'terran', cost:150, buildTime:8, name:'Orbital CMD', unlocks:[], r:BASE_R, isOrbitalUpgrade:true },
   // Natural expansion (second base)
   commandcenter: { faction:'terran', cost:400, buildTime:15, name:'CC', unlocks:['scv'], r:20, supplyCap:11, isExpansion:true },
   nexus:         { faction:'protoss', cost:400, buildTime:15, name:'Nexus', unlocks:['probe'], r:20, supplyCap:11, isExpansion:true },
@@ -619,7 +610,7 @@ const FACTION_EXPANSION = { terran:'commandcenter', protoss:'nexus', zerg:'hatch
 const FACTION_THIRD_EXPANSION = { terran:'commandcenter3', protoss:'nexus3', zerg:'hatchery3' };
 
 const FACTION_BUILDINGS = {
-  terran: ['supplydepot','refinery','commandcenter','commandcenter3','bunker','barracks','factory','starport','engineeringbay'],
+  terran: ['orbitalcommand','supplydepot','refinery','commandcenter','commandcenter3','bunker','barracks','factory','starport','engineeringbay'],
   protoss: ['pylon','assimilator','nexus','nexus3','photoncannon','gateway','robo','fleetbeacon','forge'],
   zerg: ['overlord','extractor','hatchery','hatchery3','spinecrawler','pool','den','spire','evolutionchamber'],
 };
@@ -726,6 +717,13 @@ function getAvailableBuildings(team) {
   const available = [];
   for (const btype of all) {
     const bdef = BUILDING_DEFS[btype];
+    // Orbital Command upgrade: show only if base not yet upgraded
+    if (bdef.isOrbitalUpgrade) {
+      const base = buildings.find(b => b.type === '_base');
+      if (!base || base.isOrbital) continue;
+      available.push(btype);
+      continue;
+    }
     // Supply buildings can be built multiple times
     if (bdef.supplyCap && !bdef.isExpansion && !bdef.isThirdExpansion) {
       available.push(btype);
@@ -863,28 +861,42 @@ function lockWorkerForBuilding(team, building) {
       spawnParticle(drone.x, drone.y, '#dd6644', 8);
     }
   } else if (faction === 'terran') {
-    // Terran: lock an SCV (it stops mining until building completes)
+    // Terran: SCV physically moves to building and stays until done
     const scv = units.find(u => !u.dead && u.team === team && u.worker && !u.buildingLocked);
     if (scv) {
       scv.buildingLocked = true;
-      scv.miningState = 'idle';
+      scv.miningState = 'buildingConstruct';
       scv.assignedPatch = null;
       scv.assignedGeyser = null;
+      scv.buildTarget = building;
       building.lockedWorker = scv;
     }
+  } else if (faction === 'protoss') {
+    // Protoss: Probe moves to building to warp it in, then returns to mining
+    const probe = units.find(u => !u.dead && u.team === team && u.worker && !u.buildingLocked);
+    if (probe) {
+      probe.buildingLocked = true;
+      probe.miningState = 'warpIn';
+      probe.assignedPatch = null;
+      probe.assignedGeyser = null;
+      probe.buildTarget = building;
+      building.lockedWorker = probe;
+      building.waitingForWarp = true; // Don't start constructing until probe arrives
+    }
   }
-  // Protoss: no worker involvement (warp-in)
 }
 
 function releaseWorkerFromBuilding(building, team) {
   const faction = team === 'player' ? playerFaction : enemyFaction;
-  if (faction === 'terran' && building.lockedWorker) {
-    const scv = building.lockedWorker;
-    if (!scv.dead) {
-      scv.buildingLocked = false;
-      scv.miningState = 'idle';
+  if ((faction === 'terran' || faction === 'protoss') && building.lockedWorker) {
+    const worker = building.lockedWorker;
+    if (!worker.dead) {
+      worker.buildingLocked = false;
+      worker.buildTarget = null;
+      worker.miningState = 'idle';
     }
     building.lockedWorker = null;
+    building.waitingForWarp = false;
   }
 }
 
@@ -974,8 +986,8 @@ function startGame() {
   creepZones = [];
   initFog();
   // Each side gets an implicit "base" building
-  playerBuildings = [{ type: '_base', x: ARENA_W/2, y: PLAYER_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
-  enemyBuildings = [{ type: '_base', x: ARENA_W/2, y: ENEMY_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
+  playerBuildings = [{ type: '_base', x: ARENA_W/2, y: PLAYER_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false }];
+  enemyBuildings = [{ type: '_base', x: ARENA_W/2, y: ENEMY_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false }];
   playerMinerals = 50;
   enemyMinerals = 50;
   playerGas = 0;
@@ -1334,8 +1346,8 @@ function updateWorker(unit, dt) {
     }
   }
 
-  // Terran SCV locked to building — don't mine
-  if (unit.buildingLocked) return;
+  // Workers locked to buildings use buildingConstruct/warpIn states
+  if (unit.buildingLocked && unit.miningState !== 'buildingConstruct' && unit.miningState !== 'warpIn') return;
 
   switch (unit.miningState) {
     case 'rally': {
@@ -1452,6 +1464,65 @@ function updateWorker(unit, dt) {
       }
       break;
     }
+    case 'buildingConstruct': {
+      // Terran SCV: move to building site and stay there until built
+      const bld = unit.buildTarget;
+      if (!bld || bld.hp <= 0 || bld.built) {
+        // Building finished or destroyed — return to mining
+        unit.buildingLocked = false;
+        unit.buildTarget = null;
+        unit.miningState = 'idle';
+        break;
+      }
+      const d = dist(unit, bld);
+      if (d > 20) {
+        // Walk to building
+        const angle = Math.atan2(bld.y - unit.y, bld.x - unit.x);
+        moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
+      }
+      // Spark particles while building
+      if (Math.random() < 0.12) {
+        spawnParticle(unit.x + (Math.random()-0.5)*10, unit.y - 5, '#ffaa00', 2);
+      }
+      break;
+    }
+    case 'warpIn': {
+      // Protoss Probe: move to building, zap it, then return to mining
+      const bld = unit.buildTarget;
+      if (!bld || bld.hp <= 0) {
+        // Building destroyed — return to mining
+        unit.buildingLocked = false;
+        unit.buildTarget = null;
+        unit.miningState = 'idle';
+        if (bld) bld.waitingForWarp = false;
+        break;
+      }
+      if (bld.built) {
+        // Building done — return to mining
+        unit.buildingLocked = false;
+        unit.buildTarget = null;
+        unit.miningState = 'idle';
+        break;
+      }
+      const d = dist(unit, bld);
+      if (d > 20) {
+        // Walk to building
+        const angle = Math.atan2(bld.y - unit.y, bld.x - unit.x);
+        moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
+      } else {
+        // Arrived — initiate warp-in (building starts constructing)
+        if (bld.waitingForWarp) {
+          bld.waitingForWarp = false;
+          spawnParticle(bld.x, bld.y, '#00ccff', 15);
+        }
+        // Probe is free to go back to mining
+        unit.buildingLocked = false;
+        unit.buildTarget = null;
+        unit.miningState = 'idle';
+        if (bld.lockedWorker === unit) bld.lockedWorker = null;
+      }
+      break;
+    }
   }
 }
 
@@ -1523,7 +1594,9 @@ function updateAllBuildingQueues(buildings, team, dt) {
 function activateMacro(base, team) {
   const faction = team === 'player' ? playerFaction : enemyFaction;
   if (faction === 'terran') {
-    // MULE: spawn temporary super-worker
+    // MULE: requires Orbital Command, costs 50 energy
+    if (!base.isOrbital || (base.energy || 0) < 50) return;
+    base.energy -= 50;
     const mule = spawnUnit('scv', base.x + (Math.random()-0.5)*30, base.y, team);
     if (mule) {
       mule.despawnTimer = 30;
@@ -1532,10 +1605,9 @@ function activateMacro(base, team) {
       mule.homeBase = { x: base.x, y: base.y };
       mule.color = '#ffff44'; // gold tint
     }
-    base.macroCooldown = 60;
   } else if (faction === 'protoss') {
-    // Chrono Boost: speed up next production
-    // Find a production building with a queue
+    // Chrono Boost: costs 25 energy, speeds up production 50% for 20s
+    if ((base.energy || 0) < 25) return;
     const buildings = team === 'player' ? playerBuildings : enemyBuildings;
     let target = null;
     for (const b of buildings) {
@@ -1545,14 +1617,15 @@ function activateMacro(base, team) {
       }
     }
     if (target) {
+      base.energy -= 25;
       target.chronoTimer = 20;
       spawnParticle(target.x, target.y, '#00ccff', 12);
     }
-    base.macroCooldown = 45;
   } else if (faction === 'zerg') {
-    // Spawn Larva: next 4 units from this hatchery cost 20% less
+    // Spawn Larva: costs 25 energy, next 4 units cost 20% less
+    if ((base.energy || 0) < 25) return;
+    base.energy -= 25;
     base.larvaeBonus = 4;
-    base.macroCooldown = 40;
     spawnParticle(base.x, base.y, '#44ff44', 12);
   }
 }
@@ -1598,7 +1671,8 @@ function updateBuildings(buildings, team, dt) {
       continue;
     }
     if (!b.built) {
-      b.buildProgress += dt;
+      // Protoss warp-in: don't start until probe arrives
+      if (!b.waitingForWarp) b.buildProgress += dt;
       if (b.buildProgress >= b.buildTime) {
         b.built = true;
         const bdef = BUILDING_DEFS[b.type];
@@ -1619,6 +1693,16 @@ function updateBuildings(buildings, team, dt) {
         if (bdef && (bdef.isExpansion || bdef.isThirdExpansion)) {
           autoRedistributeWorkers(team, b);
         }
+      }
+    }
+    // Energy regeneration for bases (WoL: 0.5625 energy/sec)
+    if (b.built && b.energy !== undefined) {
+      const faction = team === 'player' ? playerFaction : enemyFaction;
+      // Terran: only regen energy if upgraded to Orbital Command
+      // Protoss/Zerg: always regen energy on bases
+      const canRegen = (faction === 'terran') ? b.isOrbital : true;
+      if (canRegen && b.energy < b.maxEnergy) {
+        b.energy = Math.min(b.maxEnergy, b.energy + 0.5625 * dt);
       }
     }
     // Defensive building attack logic
@@ -1887,8 +1971,8 @@ function updateGame(dt) {
   // AI
   updateEnemyAI(dt);
 
-  // Fog of war
-  updateFog();
+  // Fog of war (disabled)
+  // updateFog();
 
   // Units
   for (const unit of units) {
@@ -2562,6 +2646,7 @@ function updateEnemyAI(dt) {
     const newEExpB = {
       type: expansionType, x: ARENA_W / 2, y: ENEMY_EXP_Y,
       hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
+      energy: 0, maxEnergy: 200, isOrbital: false,
     };
     enemyBuildings.push(newEExpB);
     lockWorkerForBuilding('enemy', newEExpB);
@@ -2575,6 +2660,7 @@ function updateEnemyAI(dt) {
     const newEThirdB = {
       type: thirdExpType, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
       hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 20, queue: [],
+      energy: 0, maxEnergy: 200, isOrbital: false,
     };
     enemyBuildings.push(newEThirdB);
     lockWorkerForBuilding('enemy', newEThirdB);
@@ -2683,10 +2769,22 @@ function updateEnemyAI(dt) {
     }
   }
 
-  // ---- AI: Use macro abilities ----
+  // ---- AI: Upgrade to Orbital Command (Terran) ----
   const enemyBase = enemyBuildings.find(b => b.type === '_base');
-  if (enemyBase && (!enemyBase.macroCooldown || enemyBase.macroCooldown <= 0)) {
-    activateMacro(enemyBase, 'enemy');
+  if (enemyBase && enemyFaction === 'terran' && !enemyBase.isOrbital && enemyMinerals >= 150 && gameTime > 30) {
+    enemyMinerals -= 150;
+    enemyBase.isOrbital = true;
+    enemyBase.energy = 50;
+    enemyBase.maxEnergy = 200;
+  }
+  // ---- AI: Use macro abilities (energy-based) ----
+  if (enemyBase) {
+    const energyCosts = { terran: 50, protoss: 25, zerg: 25 };
+    const energyCost = energyCosts[enemyFaction] || 50;
+    const canUse = (enemyFaction === 'terran') ? (enemyBase.isOrbital && (enemyBase.energy || 0) >= energyCost) : ((enemyBase.energy || 0) >= energyCost);
+    if (canUse) {
+      activateMacro(enemyBase, 'enemy');
+    }
   }
 
   // ---- AI: Build detectors if player has cloaked units ----
@@ -2911,8 +3009,8 @@ function render() {
     ctx.fillText('(tap panel to cancel)', ARENA_W / 2, VIEWPORT_H / 2 + cameraY + 16);
   }
 
-  // Fog of war overlay
-  drawFog();
+  // Fog of war overlay (disabled)
+  // drawFog();
 
   ctx.restore(); // end world-space
 
@@ -4771,7 +4869,20 @@ function drawBuildings() {
       ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('HQ', b.x, b.y);
+      const label = (b.isOrbital) ? 'OC' : 'HQ';
+      ctx.fillText(label, b.x, b.y);
+      // Energy bar (if base has energy)
+      if (b.energy !== undefined && b.energy > 0 && isPlayer) {
+        const eBarW = bdef.r * 2;
+        const eFrac = b.energy / b.maxEnergy;
+        ctx.fillStyle = '#111';
+        ctx.fillRect(b.x - eBarW/2, b.y + bdef.r + 3, eBarW, 3);
+        ctx.fillStyle = '#8844ff';
+        ctx.fillRect(b.x - eBarW/2, b.y + bdef.r + 3, eBarW * eFrac, 3);
+        ctx.fillStyle = '#aa66ff';
+        ctx.font = '5px monospace';
+        ctx.fillText(Math.floor(b.energy) + 'E', b.x, b.y + bdef.r + 12);
+      }
     } else {
       // Built structure (non-expansion)
       const grad = ctx.createRadialGradient(b.x-2, b.y-2, 2, b.x, b.y, bdef.r);
@@ -5066,17 +5177,27 @@ function drawProductionPanel() {
         if (y > -BTN_H - 5 && y < VIEWPORT_H) {
           const macroNames = { terran: 'MULE', protoss: 'CHRONO', zerg: 'LARVAE' };
           const macroName = macroNames[playerFaction] || 'MACRO';
-          // Check cooldown on any base
-          const anyReady = builtGroup.some(b => !b.macroCooldown || b.macroCooldown <= 0);
-          ctx.fillStyle = anyReady ? 'rgba(40,60,20,0.9)' : 'rgba(30,30,30,0.6)';
-          ctx.fillRect(px + 4, y, BTN_W, BTN_H - 8);
-          ctx.strokeStyle = anyReady ? '#88ff44' : '#444';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(px + 4, y, BTN_W, BTN_H - 8);
-          ctx.fillStyle = anyReady ? '#88ff44' : '#666';
-          ctx.font = 'bold 7px monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText(macroName, px + PANEL_W/2, y + 12);
+          const energyCosts = { terran: 50, protoss: 25, zerg: 25 };
+          const energyCost = energyCosts[playerFaction] || 50;
+          // Check energy on any base (Terran requires Orbital upgrade)
+          const anyReady = builtGroup.some(b => {
+            if (playerFaction === 'terran' && !b.isOrbital) return false;
+            return (b.energy || 0) >= energyCost;
+          });
+          const bestBase = builtGroup.find(b => b.energy !== undefined);
+          const currentEnergy = bestBase ? Math.floor(bestBase.energy || 0) : 0;
+          const showButton = playerFaction !== 'terran' || builtGroup.some(b => b.isOrbital);
+          if (showButton) {
+            ctx.fillStyle = anyReady ? 'rgba(40,60,20,0.9)' : 'rgba(30,30,30,0.6)';
+            ctx.fillRect(px + 4, y, BTN_W, BTN_H - 8);
+            ctx.strokeStyle = anyReady ? '#88ff44' : '#444';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px + 4, y, BTN_W, BTN_H - 8);
+            ctx.fillStyle = anyReady ? '#88ff44' : '#666';
+            ctx.font = 'bold 7px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(macroName + ' (' + currentEnergy + '/' + energyCost + 'E)', px + PANEL_W/2, y + 12);
+          }
         }
         y += BTN_H;
       }
@@ -5514,7 +5635,12 @@ function handleInput(x, y) {
       }
       // Macro ability
       if (btn.type === '_macro') {
-        const base = btn.builtGroup.find(b => !b.macroCooldown || b.macroCooldown <= 0);
+        const energyCosts = { terran: 50, protoss: 25, zerg: 25 };
+        const energyCost = energyCosts[playerFaction] || 50;
+        const base = btn.builtGroup.find(b => {
+          if (playerFaction === 'terran' && !b.isOrbital) return false;
+          return (b.energy || 0) >= energyCost;
+        });
         if (!base) return;
         activateMacro(base, 'player');
         return;
@@ -5523,6 +5649,17 @@ function handleInput(x, y) {
       if (btn.isBuilding) {
         const bdef = BUILDING_DEFS[btn.type];
         const gasCost = bdef.gasCost || 0;
+        // Orbital Command upgrade — upgrades main base in-place
+        if (bdef.isOrbitalUpgrade) {
+          const base = playerBuildings.find(b => b.type === '_base' && !b.isOrbital);
+          if (!base || playerMinerals < bdef.cost) return;
+          playerMinerals -= bdef.cost;
+          base.isOrbital = true;
+          base.energy = 50;
+          base.maxEnergy = 200;
+          spawnParticle(base.x, base.y, '#4488ff', 15);
+          return;
+        }
         if (bdef.cost <= playerMinerals && playerGas >= gasCost) {
           if (bdef.gasBuilding) {
             // Gas buildings auto-place on geysers
@@ -5548,6 +5685,7 @@ function handleInput(x, y) {
             const newExpB = {
               type: btn.type, x: ARENA_W / 2, y: PLAYER_EXP_Y,
               hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
+              energy: 0, maxEnergy: 200, isOrbital: false,
             };
             playerBuildings.push(newExpB);
             lockWorkerForBuilding('player', newExpB);
@@ -5558,6 +5696,7 @@ function handleInput(x, y) {
             const newThirdB = {
               type: btn.type, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
               hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
+              energy: 0, maxEnergy: 200, isOrbital: false,
             };
             playerBuildings.push(newThirdB);
             lockWorkerForBuilding('player', newThirdB);
@@ -5654,6 +5793,22 @@ function handleInput(x, y) {
       return;
     }
 
+    // Tap on player bunker to eject garrisoned units (check FIRST before rally)
+    for (const b of playerBuildings) {
+      if (!b.built || !b.garrison || b.garrison.length === 0) continue;
+      const bdef = BUILDING_DEFS[b.type];
+      if (!bdef || !bdef.bunkerGarrison) continue;
+      const d = Math.sqrt((wx - b.x) ** 2 + (wy - b.y) ** 2);
+      if (d < (bdef.r || 16) + 10) {
+        // Eject all garrisoned units
+        for (const g of b.garrison) {
+          releaseGarrisonUnit(g, b.x + (Math.random()-0.5)*40, b.y + 20 + Math.random()*20, 'player');
+        }
+        b.garrison = [];
+        return; // Don't set rally or attack-move
+      }
+    }
+
     // Double-tap detection for move-only command
     const now = Date.now();
     const tapDist = Math.sqrt((wx - lastTapX) ** 2 + (wy - lastTapY) ** 2);
@@ -5673,25 +5828,6 @@ function handleInput(x, y) {
     lastTapTime = now;
     lastTapX = wx;
     lastTapY = wy;
-
-    // Tap on player bunker to eject garrisoned units
-    let tappedBunker = false;
-    for (const b of playerBuildings) {
-      if (!b.built || !b.garrison || b.garrison.length === 0) continue;
-      const bdef = BUILDING_DEFS[b.type];
-      if (!bdef || !bdef.bunkerGarrison) continue;
-      const d = Math.sqrt((wx - b.x) ** 2 + (wy - b.y) ** 2);
-      if (d < (bdef.r || 16) + 10) {
-        // Eject all garrisoned units
-        for (const g of b.garrison) {
-          releaseGarrisonUnit(g, b.x + (Math.random()-0.5)*40, b.y + 20 + Math.random()*20, 'player');
-        }
-        b.garrison = [];
-        tappedBunker = true;
-        break;
-      }
-    }
-    if (tappedBunker) return;
 
     // Set army rally point
     playerRallyX = wx;
