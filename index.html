@@ -630,12 +630,12 @@ let enemyBuildings = [];
 // ---- Unit Definitions (SC2 costs) ----
 const UNIT_DEFS = {
   // TERRAN — SC2 costs
-  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:195, dmg:31, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  color:'#4488ff', name:'Marine', buildTime:6 },
-  marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:450, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, color:'#336699', name:'Marauder', buildTime:7 },
-  reaper:       { faction:'terran', cost:50,  gasCost:50,  supply:1, hp:160, dmg:22, speed:2.0, range:80,  atkSpeed:0.6, count:2, r:7,  color:'#66aaff', name:'Reaper', buildTime:6 },
-  medic:        { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:6 },
+  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:195, dmg:31, speed:1.3, range:120, atkSpeed:0.8, count:1, r:8,  color:'#4488ff', name:'Marine', buildTime:6 },
+  marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:450, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:1, r:10, color:'#336699', name:'Marauder', buildTime:7 },
+  reaper:       { faction:'terran', cost:50,  gasCost:50,  supply:1, hp:160, dmg:22, speed:2.0, range:80,  atkSpeed:0.6, count:1, r:7,  color:'#66aaff', name:'Reaper', buildTime:6 },
+  medic:        { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:1, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:6 },
   siegetank:    { faction:'terran', cost:150, gasCost:125, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:11 },
-  hellion:      { faction:'terran', cost:100, gasCost:0,   supply:2, hp:200, dmg:35, speed:1.6, range:80,  atkSpeed:0.8, count:2, r:9,  color:'#ff8844', name:'Hellion', splash:20, buildTime:7 },
+  hellion:      { faction:'terran', cost:100, gasCost:0,   supply:2, hp:200, dmg:35, speed:1.6, range:80,  atkSpeed:0.8, count:1, r:9,  color:'#ff8844', name:'Hellion', splash:20, buildTime:7 },
   ghost:        { faction:'terran', cost:150, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost', buildTime:10 },
   scv:          { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3, buildTime:8 },
   viking:       { faction:'terran', cost:150, gasCost:75,  supply:2, hp:280, dmg:40, speed:1.3, range:120, atkSpeed:0.9, count:1, r:10, color:'#5599ee', name:'Viking', buildTime:10, isAir:true },
@@ -645,9 +645,9 @@ const UNIT_DEFS = {
   thor:         { faction:'terran', cost:300, gasCost:200, supply:6, hp:800, dmg:60, speed:0.6, range:100, atkSpeed:1.5, count:1, r:16, color:'#2244aa', name:'Thor', splash:30, buildTime:14 },
   raven:        { faction:'terran', cost:100, gasCost:200, supply:2, hp:140, dmg:0,  speed:1.2, range:0,   atkSpeed:0,   count:1, r:9,  color:'#7799cc', name:'Raven', buildTime:12, isAir:true, detector:true, detectionRange:150 },
   // PROTOSS — SC2 costs
-  zealot:       { faction:'protoss', cost:100, gasCost:0,   supply:2, hp:530, dmg:56, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:9, shield:true, shieldAmt:50 },
-  stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:390, dmg:53, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:10, shield:true, shieldAmt:80 },
-  sentry:       { faction:'protoss', cost:50,  gasCost:100, supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:40, buildTime:9 },
+  zealot:       { faction:'protoss', cost:100, gasCost:0,   supply:2, hp:530, dmg:56, speed:1.4, range:20,  atkSpeed:0.7, count:1, r:10, color:'#ffcc00', name:'Zealot', buildTime:9, shield:true, shieldAmt:50 },
+  stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:390, dmg:53, speed:1.2, range:130, atkSpeed:0.9, count:1, r:9,  color:'#cc9900', name:'Stalker', buildTime:10, shield:true, shieldAmt:80 },
+  sentry:       { faction:'protoss', cost:50,  gasCost:100, supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:1, r:8,  color:'#ffee88', name:'Sentry', shield:true, shieldAmt:40, buildTime:9 },
   hightemplar:  { faction:'protoss', cost:50,  gasCost:150, supply:2, hp:280, dmg:180,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:55, buildTime:13, shield:true, shieldAmt:40 },
   immortal:     { faction:'protoss', cost:275, gasCost:100, supply:4, hp:650, dmg:85, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:13, shield:true, shieldAmt:100 },
   colossus:     { faction:'protoss', cost:300, gasCost:200, supply:6, hp:450, dmg:70, speed:0.7, range:150, atkSpeed:1.2, count:1, r:14, color:'#eecc33', name:'Colossus', splash:35, buildTime:18, shield:true, shieldAmt:150 },
@@ -658,10 +658,10 @@ const UNIT_DEFS = {
   darktemplar:  { faction:'protoss', cost:125, gasCost:125, supply:2, hp:280, dmg:95, speed:1.2, range:20,  atkSpeed:0.9, count:1, r:9,  color:'#886600', name:'Dark Templar', buildTime:12, cloaked:true, shield:true, shieldAmt:80 },
   observer:     { faction:'protoss', cost:25,  gasCost:75,  supply:1, hp:60,  dmg:0,  speed:1.5, range:0,   atkSpeed:0,   count:1, r:5,  color:'#999966', name:'Observer', buildTime:8, isAir:true, cloaked:true, detector:true, detectionRange:150, shield:true, shieldAmt:20 },
   // ZERG — SC2 costs
-  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:165, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  color:'#ff4444', name:'Zergling', buildTime:6 },
-  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:540, dmg:37, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:6 },
-  hydralisk:    { faction:'zerg', cost:100, gasCost:50,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:8 },
-  baneling:     { faction:'zerg', cost:25,  gasCost:25,  supply:1, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:4, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:5 },
+  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:165, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:2, r:6,  color:'#ff4444', name:'Zergling', buildTime:6 },
+  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:540, dmg:37, speed:1.0, range:80,  atkSpeed:0.8, count:1, r:10, color:'#aa3333', name:'Roach', buildTime:6 },
+  hydralisk:    { faction:'zerg', cost:100, gasCost:50,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:1, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:8 },
+  baneling:     { faction:'zerg', cost:25,  gasCost:25,  supply:1, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:1, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:5 },
   ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25, buildTime:13 },
   drone:        { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3, buildTime:8 },
   mutalisk:     { faction:'zerg', cost:100, gasCost:100, supply:2, hp:200, dmg:30, speed:1.8, range:90,  atkSpeed:0.7, count:1, r:9,  color:'#ee5555', name:'Mutalisk', splash:15, buildTime:8, isAir:true },
@@ -846,6 +846,74 @@ function spawnUnit(defName, x, y, team) {
     });
   }
   return units[units.length - 1];
+}
+
+// Race-specific building mechanics:
+// Terran: SCV is locked (busy) during construction, freed when done
+// Protoss: Probe warps in building, building self-constructs (probe stays free)
+// Zerg: Drone morphs into building (consumed)
+function lockWorkerForBuilding(team, building) {
+  const faction = team === 'player' ? playerFaction : enemyFaction;
+  if (faction === 'zerg') {
+    // Zerg: consume a drone
+    const drone = units.find(u => !u.dead && u.team === team && u.worker);
+    if (drone) {
+      drone.hp = 0;
+      drone.dead = true;
+      spawnParticle(drone.x, drone.y, '#dd6644', 8);
+    }
+  } else if (faction === 'terran') {
+    // Terran: lock an SCV (it stops mining until building completes)
+    const scv = units.find(u => !u.dead && u.team === team && u.worker && !u.buildingLocked);
+    if (scv) {
+      scv.buildingLocked = true;
+      scv.miningState = 'idle';
+      scv.assignedPatch = null;
+      scv.assignedGeyser = null;
+      building.lockedWorker = scv;
+    }
+  }
+  // Protoss: no worker involvement (warp-in)
+}
+
+function releaseWorkerFromBuilding(building, team) {
+  const faction = team === 'player' ? playerFaction : enemyFaction;
+  if (faction === 'terran' && building.lockedWorker) {
+    const scv = building.lockedWorker;
+    if (!scv.dead) {
+      scv.buildingLocked = false;
+      scv.miningState = 'idle';
+    }
+    building.lockedWorker = null;
+  }
+}
+
+// Release a garrisoned unit back onto the field (no supply change — supply was never freed)
+function releaseGarrisonUnit(g, x, y, team) {
+  const def = UNIT_DEFS[g.type];
+  if (!def) return;
+  const faction = team === 'player' ? playerFaction : enemyFaction;
+  units.push({
+    type: g.type, team, x, y,
+    hp: def.hp, maxHp: def.hp,
+    shield: def.shield ? def.shieldAmt : 0, maxShield: def.shield ? def.shieldAmt : 0,
+    dmg: def.dmg, speed: def.speed, range: def.range,
+    atkSpeed: def.atkSpeed, atkTimer: 0, r: def.r,
+    color: FACTION_COLORS[faction].primary,
+    dead: false, healer: def.healer || false, healAmt: def.healAmt || 0,
+    suicide: def.suicide || false, splash: def.splash || 0,
+    worker: false, mineRate: 0, isAir: def.isAir || false,
+    target: null, animFrame: 0,
+    miningState: 'idle', miningTimer: 0, assignedPatch: null, assignedGeyser: null,
+    homeBase: null, carrying: 0, carryType: 'minerals',
+    siegeMode: false, siegeTimer: 0, chargeTimer: 0, blinkTimer: 0,
+    empTimer: 0, forcefieldTimer: 0, stimTimer: 0, yamatoTimer: 0,
+    guardianShieldTimer: 0, fungalTimer: 0, fungalRootTimer: 0,
+    voidrayDmgStage: 0, voidrayAttackTime: 0, lastTarget: null,
+    cloaked: def.cloaked || false, detector: def.detector || false,
+    detectionRange: def.detectionRange || 0, despawnTimer: def.despawnTimer || 0,
+    supply: def.supply || 1,
+  });
 }
 
 // ---- Menu ----
@@ -1266,6 +1334,9 @@ function updateWorker(unit, dt) {
     }
   }
 
+  // Terran SCV locked to building — don't mine
+  if (unit.buildingLocked) return;
+
   switch (unit.miningState) {
     case 'rally': {
       const dx = unit.rallyX - unit.x;
@@ -1507,10 +1578,12 @@ function updateBuildings(buildings, team, dt) {
         const geyser = geysers.find(g => Math.abs(g.x - b.x) < 20 && Math.abs(g.y - b.y) < 20);
         if (geyser) geyser.workers = 0;
       }
+      // Release locked SCV if building was under construction
+      if (!b.built) releaseWorkerFromBuilding(b, team);
       // Release garrisoned units when bunker destroyed
       if (b.garrison && b.garrison.length > 0) {
         for (const g of b.garrison) {
-          spawnUnit(g.type, b.x + (Math.random()-0.5)*30, b.y + (Math.random()-0.5)*30, team);
+          releaseGarrisonUnit(g, b.x + (Math.random()-0.5)*30, b.y + (Math.random()-0.5)*30, team);
         }
         b.garrison = [];
       }
@@ -1529,6 +1602,8 @@ function updateBuildings(buildings, team, dt) {
       if (b.buildProgress >= b.buildTime) {
         b.built = true;
         const bdef = BUILDING_DEFS[b.type];
+        // Release locked SCV (Terran)
+        releaseWorkerFromBuilding(b, team);
         // Add supply cap if supply building
         if (bdef && bdef.supplyCap) {
           if (team === 'player') playerSupplyMax += bdef.supplyCap;
@@ -2391,10 +2466,12 @@ function aiBuildBuilding(btype) {
     const bx = PROD_GRID_X[col];
     const by = ENEMY_BASE_Y - 100 + row * PROD_GRID_SPACING; // mirrored from player
     const hp = bdef.isDefense ? (bdef.defenseHp || 500) : 500;
-    enemyBuildings.push({
+    const newB = {
       type: btype, x: bx, y: by,
       hp, maxHp: hp, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-    });
+    };
+    enemyBuildings.push(newB);
+    lockWorkerForBuilding('enemy', newB);
     return true;
   }
   return false;
@@ -2456,10 +2533,12 @@ function updateEnemyAI(dt) {
       if (availGeysers.length > 0) {
         const geyser = availGeysers[0];
         enemyMinerals -= BUILDING_DEFS[gasType].cost;
-        enemyBuildings.push({
+        const newEGasB = {
           type: gasType, x: geyser.x, y: geyser.y,
           hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: BUILDING_DEFS[gasType].buildTime, queue: [],
-        });
+        };
+        enemyBuildings.push(newEGasB);
+        lockWorkerForBuilding('enemy', newEGasB);
         geyser.workers = 3;
       }
     }
@@ -2480,10 +2559,12 @@ function updateEnemyAI(dt) {
   const enemyHasExpansion = enemyBuildings.some(b => b.type === expansionType);
   if (!enemyHasExpansion && gameTime > P.expandTime && enemyMinerals >= 400) {
     enemyMinerals -= 400;
-    enemyBuildings.push({
+    const newEExpB = {
       type: expansionType, x: ARENA_W / 2, y: ENEMY_EXP_Y,
       hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
-    });
+    };
+    enemyBuildings.push(newEExpB);
+    lockWorkerForBuilding('enemy', newEExpB);
   }
   // ---- Third Expansion (contested) ----
   const thirdExpType = FACTION_THIRD_EXPANSION[enemyFaction];
@@ -2491,10 +2572,12 @@ function updateEnemyAI(dt) {
   const playerHasThird = playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isThirdExpansion);
   if (!enemyHasThird && !playerHasThird && hasExpansion('enemy') && gameTime > P.expandTime + 60 && enemyMinerals >= 400) {
     enemyMinerals -= 400;
-    enemyBuildings.push({
+    const newEThirdB = {
       type: thirdExpType, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
       hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 20, queue: [],
-    });
+    };
+    enemyBuildings.push(newEThirdB);
+    lockWorkerForBuilding('enemy', newEThirdB);
   }
 
   // ---- Defense buildings: build 1-2 near base ----
@@ -2504,10 +2587,12 @@ function updateEnemyAI(dt) {
     const bdef = BUILDING_DEFS[defenseType];
     enemyMinerals -= bdef.cost;
     const bx = defCount === 0 ? LANE_X[0] : LANE_X[1];
-    enemyBuildings.push({
+    const newEDefB = {
       type: defenseType, x: bx, y: ENEMY_CHOKE_Y,
       hp: bdef.defenseHp, maxHp: bdef.defenseHp, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-    });
+    };
+    enemyBuildings.push(newEDefB);
+    lockWorkerForBuilding('enemy', newEDefB);
   }
 
   // ---- Production buildings: difficulty-scaled duplication ----
@@ -4711,6 +4796,17 @@ function drawBuildings() {
         ctx.fillStyle = hpFrac > 0.5 ? '#44ff44' : hpFrac > 0.25 ? '#ffaa00' : '#ff4444';
         ctx.fillRect(b.x - barW/2, b.y - bdef.r - 6, barW * hpFrac, 3);
       }
+      // Bunker garrison count — show "TAP" hint for player bunkers
+      if (bdef.bunkerGarrison && b.garrison && b.garrison.length > 0) {
+        ctx.fillStyle = '#ffcc00';
+        ctx.font = 'bold 5px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(b.garrison.length + '/' + bdef.maxGarrison, b.x, b.y + bdef.r + 8);
+        if (isPlayer) {
+          ctx.fillStyle = 'rgba(255,204,0,0.6)';
+          ctx.fillText('TAP TO EJECT', b.x, b.y + bdef.r + 14);
+        }
+      }
     }
   }
 }
@@ -5439,26 +5535,32 @@ function handleInput(x, y) {
             if (!geyser) return;
             playerMinerals -= bdef.cost;
             playerGas -= gasCost;
-            playerBuildings.push({
+            const newGasB = {
               type: btn.type, x: geyser.x, y: geyser.y,
               hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-            });
+            };
+            playerBuildings.push(newGasB);
+            lockWorkerForBuilding('player', newGasB);
           } else if (bdef.isExpansion) {
             // Natural expansion auto-places
             playerMinerals -= bdef.cost;
             playerGas -= gasCost;
-            playerBuildings.push({
+            const newExpB = {
               type: btn.type, x: ARENA_W / 2, y: PLAYER_EXP_Y,
               hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-            });
+            };
+            playerBuildings.push(newExpB);
+            lockWorkerForBuilding('player', newExpB);
           } else if (bdef.isThirdExpansion) {
             // Third expansion auto-places in contested corridor
             playerMinerals -= bdef.cost;
             playerGas -= gasCost;
-            playerBuildings.push({
+            const newThirdB = {
               type: btn.type, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
               hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-            });
+            };
+            playerBuildings.push(newThirdB);
+            lockWorkerForBuilding('player', newThirdB);
           } else if (bdef.supplyCap) {
             // Supply buildings → background queue (no physical placement)
             playerMinerals -= bdef.cost;
@@ -5479,10 +5581,12 @@ function handleInput(x, y) {
             const row = Math.floor(prodCount / 2);
             const bx = PROD_GRID_X[col];
             const by = PROD_AREA_Y - row * PROD_GRID_SPACING;
-            playerBuildings.push({
+            const newProdB = {
               type: btn.type, x: bx, y: by,
               hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-            });
+            };
+            playerBuildings.push(newProdB);
+            lockWorkerForBuilding('player', newProdB);
           }
         }
         return;
@@ -5539,10 +5643,12 @@ function handleInput(x, y) {
         playerMinerals -= pb.bdef.cost;
         playerGas -= gasCost;
         const hp = pb.bdef.defenseHp;
-        playerBuildings.push({
+        const newDefB = {
           type: pb.type, x: wx, y: wy,
           hp, maxHp: hp, built: false, buildProgress: 0, buildTime: pb.bdef.buildTime, queue: [],
-        });
+        };
+        playerBuildings.push(newDefB);
+        lockWorkerForBuilding('player', newDefB);
       }
       placingBuilding = null;
       return;
@@ -5567,6 +5673,25 @@ function handleInput(x, y) {
     lastTapTime = now;
     lastTapX = wx;
     lastTapY = wy;
+
+    // Tap on player bunker to eject garrisoned units
+    let tappedBunker = false;
+    for (const b of playerBuildings) {
+      if (!b.built || !b.garrison || b.garrison.length === 0) continue;
+      const bdef = BUILDING_DEFS[b.type];
+      if (!bdef || !bdef.bunkerGarrison) continue;
+      const d = Math.sqrt((wx - b.x) ** 2 + (wy - b.y) ** 2);
+      if (d < (bdef.r || 16) + 10) {
+        // Eject all garrisoned units
+        for (const g of b.garrison) {
+          releaseGarrisonUnit(g, b.x + (Math.random()-0.5)*40, b.y + 20 + Math.random()*20, 'player');
+        }
+        b.garrison = [];
+        tappedBunker = true;
+        break;
+      }
+    }
+    if (tappedBunker) return;
 
     // Set army rally point
     playerRallyX = wx;
