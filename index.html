@@ -167,17 +167,8 @@ function resize() {
     W = window.innerWidth;
     H = W / ratio;
   }
-  // Cap scale on tablets/wide screens — prevents over-zoom
-  // Phone (375px): SCALE = 0.75 (normal). iPad (820px): SCALE capped to 1.15
-  const maxScale = 1.15;
-  if (W / GAME_W > maxScale) {
-    W = Math.round(GAME_W * maxScale);
-    H = Math.round(W / ratio);
-  }
   canvas.width = W;
   canvas.height = H;
-  canvas.style.width = W + 'px';
-  canvas.style.height = H + 'px';
   SCALE = W / GAME_W;
 }
 window.addEventListener('resize', resize);
