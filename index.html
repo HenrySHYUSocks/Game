@@ -4108,13 +4108,13 @@ function drawMinimap() {
     ctx.fillRect(mmX + rpX * scaleX - 1, mmY + playerRallyY * scaleY - 1, 3, 3);
   }
 
-  // Towers
-  for (const key of ['left', 'right', 'base']) {
-    if (towers.player[key].hp > 0) {
+  // Towers (base only)
+  for (const key of ['base']) {
+    if (towers.player[key] && towers.player[key].hp > 0) {
       ctx.fillStyle = '#4488ff';
       ctx.fillRect(mmX + towers.player[key].x * scaleX - 1, mmY + towers.player[key].y * scaleY - 1, 3, 3);
     }
-    if (towers.enemy[key].hp > 0) {
+    if (towers.enemy[key] && towers.enemy[key].hp > 0) {
       ctx.fillStyle = '#ff4444';
       ctx.fillRect(mmX + towers.enemy[key].x * scaleX - 1, mmY + towers.enemy[key].y * scaleY - 1, 3, 3);
     }
@@ -4523,8 +4523,19 @@ function gameLoop(timestamp) {
   const dt = Math.min(0.05, (timestamp - lastTime) / 1000);
   lastTime = timestamp;
 
-  updateGame(dt);
-  render();
+  try {
+    updateGame(dt);
+    render();
+  } catch (e) {
+    console.error('Game loop error:', e);
+    // Show error on screen for debugging
+    ctx.save();
+    ctx.scale(SCALE, SCALE);
+    ctx.fillStyle = 'red';
+    ctx.font = '10px monospace';
+    ctx.fillText('ERROR: ' + e.message, 10, VIEWPORT_H - 20);
+    ctx.restore();
+  }
 
   requestAnimationFrame(gameLoop);
 }
