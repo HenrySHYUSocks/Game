@@ -243,6 +243,11 @@ let enemySupplyMax = 10;
 
 // ---- Force Fields ----
 let forceFields = [];
+let stormZones = []; // { x, y, timer, dmg, team, tickTimer }
+let autoTurrets = []; // { x, y, hp, dmg, range, team, timer, atkTimer }
+let scanZones = []; // { x, y, radius, timer, team }
+let playerUpgrades = { attack: 0, armor: 0 };
+let enemyUpgrades = { attack: 0, armor: 0 };
 
 // ---- Map Obstacles & Terrain ----
 // obstacles are rectangles or circles that block ground unit movement
@@ -503,20 +508,24 @@ const BUILDING_DEFS = {
   refinery:    { faction:'terran', cost:75, buildTime:5, name:'Refinery', unlocks:[], r:14, gasBuilding:true },
   assimilator: { faction:'protoss', cost:75, buildTime:5, name:'Assimilator', unlocks:[], r:14, gasBuilding:true },
   extractor:   { faction:'zerg', cost:75, buildTime:5, name:'Extractor', unlocks:[], r:14, gasBuilding:true },
+  // Upgrade buildings
+  engineeringbay:    { faction:'terran', cost:125, buildTime:10, name:'Eng Bay', unlocks:[], r:16, isUpgrade:true },
+  forge:             { faction:'protoss', cost:150, buildTime:10, name:'Forge', unlocks:[], r:16, isUpgrade:true },
+  evolutionchamber:  { faction:'zerg', cost:75, buildTime:10, name:'Evo Chamber', unlocks:[], r:16, isUpgrade:true },
   // TERRAN
   bunker:    { faction:'terran', cost:100, buildTime:6, name:'Bunker', unlocks:[], r:16, isDefense:true, defenseHp:400, defenseDmg:25, defenseRange:130, defenseAtkSpeed:1.0 },
-  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper','medic'], r:18 },
-  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','ghost'], requires:'barracks', r:18 },
-  starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','battlecruiser'], requires:'factory', r:18 },
+  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper'], r:18 },
+  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','ghost','thor'], requires:'barracks', r:18 },
+  starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','raven','battlecruiser'], requires:'factory', r:18 },
   // PROTOSS
   photoncannon: { faction:'protoss', cost:150, buildTime:6, name:'Cannon', unlocks:[], r:14, isDefense:true, defenseHp:300, defenseDmg:20, defenseRange:140, defenseAtkSpeed:0.9 },
   gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','sentry'], r:18 },
-  robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robo Bay', unlocks:['immortal','colossus','hightemplar'], requires:'gateway', r:18 },
+  robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robotics', unlocks:['immortal','colossus','hightemplar','darktemplar','observer'], requires:'gateway', r:18 },
   fleetbeacon: { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Fleet Beacon', unlocks:['phoenix','voidray','carrier'], requires:'robo', r:18 },
   // ZERG
   spinecrawler: { faction:'zerg', cost:100, buildTime:6, name:'Spine', unlocks:[], r:14, isDefense:true, defenseHp:300, defenseDmg:30, defenseRange:120, defenseAtkSpeed:1.2 },
-  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','baneling'], r:18 },
-  den:       { faction:'zerg', cost:100, gasCost:100, buildTime:12, name:'Hydra Den', unlocks:['hydralisk','ultralisk'], requires:'pool', r:18 },
+  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawning Pool', unlocks:['zergling','roach','baneling'], r:18 },
+  den:       { faction:'zerg', cost:100, gasCost:100, buildTime:12, name:'Hydralisk Den', unlocks:['hydralisk','ultralisk','infestor','overseer'], requires:'pool', r:18 },
   spire:     { faction:'zerg', cost:200, gasCost:200, buildTime:10, name:'Spire', unlocks:['mutalisk','corruptor','broodlord'], requires:'den', r:18 },
 };
 
@@ -527,9 +536,9 @@ const FACTION_EXPANSION = { terran:'commandcenter', protoss:'nexus', zerg:'hatch
 const FACTION_THIRD_EXPANSION = { terran:'commandcenter3', protoss:'nexus3', zerg:'hatchery3' };
 
 const FACTION_BUILDINGS = {
-  terran: ['supplydepot','refinery','commandcenter','commandcenter3','bunker','barracks','factory','starport'],
-  protoss: ['pylon','assimilator','nexus','nexus3','photoncannon','gateway','robo','fleetbeacon'],
-  zerg: ['overlord','extractor','hatchery','hatchery3','spinecrawler','pool','den','spire'],
+  terran: ['supplydepot','refinery','commandcenter','commandcenter3','bunker','barracks','factory','starport','engineeringbay'],
+  protoss: ['pylon','assimilator','nexus','nexus3','photoncannon','gateway','robo','fleetbeacon','forge'],
+  zerg: ['overlord','extractor','hatchery','hatchery3','spinecrawler','pool','den','spire','evolutionchamber'],
 };
 
 let playerBuildings = []; // { type, x, y, hp, maxHp, built, buildProgress, buildTime }
@@ -550,6 +559,8 @@ const UNIT_DEFS = {
   medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, color:'#aaddff', name:'Medivac', healer:true, healAmt:30, buildTime:10, isAir:true },
   banshee:      { faction:'terran', cost:150, gasCost:100, supply:3, hp:280, dmg:55, speed:1.2, range:110, atkSpeed:1.0, count:1, r:10, color:'#3355cc', name:'Banshee', buildTime:11, isAir:true },
   battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, color:'#3366aa', name:'Battlecruiser', splash:20, buildTime:21, isAir:true },
+  thor:         { faction:'terran', cost:300, gasCost:200, supply:6, hp:800, dmg:60, speed:0.6, range:100, atkSpeed:1.5, count:1, r:16, color:'#2244aa', name:'Thor', splash:30, buildTime:14 },
+  raven:        { faction:'terran', cost:100, gasCost:200, supply:2, hp:140, dmg:0,  speed:1.2, range:0,   atkSpeed:0,   count:1, r:9,  color:'#7799cc', name:'Raven', buildTime:12, isAir:true, detector:true, detectionRange:150 },
   // PROTOSS — SC2 costs
   zealot:       { faction:'protoss', cost:100, gasCost:0,   supply:2, hp:530, dmg:56, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, color:'#ffcc00', name:'Zealot', buildTime:9 },
   stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:390, dmg:53, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  color:'#cc9900', name:'Stalker', buildTime:10 },
@@ -561,6 +572,8 @@ const UNIT_DEFS = {
   phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:250, dmg:35, speed:1.6, range:110, atkSpeed:0.8, count:1, r:9,  color:'#eebb22', name:'Phoenix', buildTime:8, isAir:true },
   voidray:      { faction:'protoss', cost:250, gasCost:150, supply:4, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, color:'#ffdd44', name:'Void Ray', buildTime:12, isAir:true },
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:21, isAir:true },
+  darktemplar:  { faction:'protoss', cost:125, gasCost:125, supply:2, hp:280, dmg:95, speed:1.2, range:20,  atkSpeed:0.9, count:1, r:9,  color:'#886600', name:'Dark Templar', buildTime:12, cloaked:true },
+  observer:     { faction:'protoss', cost:25,  gasCost:75,  supply:1, hp:60,  dmg:0,  speed:1.5, range:0,   atkSpeed:0,   count:1, r:5,  color:'#999966', name:'Observer', buildTime:8, isAir:true, cloaked:true, detector:true, detectionRange:150 },
   // ZERG — SC2 costs
   zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:165, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  color:'#ff4444', name:'Zergling', buildTime:6 },
   roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:540, dmg:37, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, color:'#aa3333', name:'Roach', buildTime:6 },
@@ -571,6 +584,8 @@ const UNIT_DEFS = {
   mutalisk:     { faction:'zerg', cost:100, gasCost:100, supply:2, hp:200, dmg:30, speed:1.8, range:90,  atkSpeed:0.7, count:1, r:9,  color:'#ee5555', name:'Mutalisk', splash:15, buildTime:8, isAir:true },
   corruptor:    { faction:'zerg', cost:150, gasCost:100, supply:2, hp:350, dmg:50, speed:1.1, range:120, atkSpeed:1.0, count:1, r:11, color:'#cc3333', name:'Corruptor', buildTime:10, isAir:true },
   broodlord:    { faction:'zerg', cost:150, gasCost:150, supply:4, hp:500, dmg:60, speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#aa2222', name:'Brood Lord', splash:25, buildTime:8, isAir:true },
+  infestor:     { faction:'zerg', cost:100, gasCost:150, supply:2, hp:200, dmg:0,  speed:0.8, range:130, atkSpeed:0,   count:1, r:10, color:'#669933', name:'Infestor', buildTime:10 },
+  overseer:     { faction:'zerg', cost:50,  gasCost:50,  supply:1, hp:200, dmg:0,  speed:1.3, range:0,   atkSpeed:0,   count:1, r:9,  color:'#cc6644', name:'Overseer', buildTime:6, isAir:true, detector:true, detectionRange:150 },
 };
 
 // Worker type per faction
@@ -661,7 +676,12 @@ function getAvailableBuildings(team) {
       available.push(btype);
       continue;
     }
-    // Production buildings: unlimited
+    // Upgrade buildings: only one allowed
+    if (bdef.isUpgrade) {
+      const exists = buildings.some(b => b.type === btype);
+      if (exists) continue;
+    }
+    // Production buildings: unlimited (upgrade buildings already filtered above)
     // Check prerequisite
     if (bdef.requires) {
       const hasReq = buildings.some(b => b.type === bdef.requires && b.built);
@@ -726,12 +746,23 @@ function spawnUnit(defName, x, y, team) {
       blinkTimer: 0,
       empTimer: 0,
       forcefieldTimer: 0,
+      stimTimer: 0,
+      yamatoTimer: 0,
+      stormTimer: 0,
+      guardianShieldTimer: 0,
+      fungalTimer: 0,
+      fungalRootTimer: 0,
       voidrayDmgStage: 0,
       voidrayAttackTime: 0,
       lastTarget: null,
+      cloaked: def.cloaked || false,
+      detector: def.detector || false,
+      detectionRange: def.detectionRange || 0,
+      despawnTimer: def.despawnTimer || 0,
       supply: def.supply || 1,
     });
   }
+  return units[units.length - 1];
 }
 
 // ---- Menu ----
@@ -784,6 +815,11 @@ function startGame() {
   particles = [];
   projectiles = [];
   forceFields = [];
+  stormZones = [];
+  autoTurrets = [];
+  scanZones = [];
+  playerUpgrades = { attack: 0, armor: 0 };
+  enemyUpgrades = { attack: 0, armor: 0 };
   // Each side gets an implicit "base" building
   playerBuildings = [{ type: '_base', x: ARENA_W/2, y: PLAYER_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
   enemyBuildings = [{ type: '_base', x: ARENA_W/2, y: ENEMY_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
@@ -877,6 +913,22 @@ function findNearestPatch(unit) {
   return best;
 }
 
+// Check if a cloaked unit is detected by the opposing team
+function isDetected(cloakedUnit, byTeam) {
+  // Check for detector units on the opposing team
+  for (const u of units) {
+    if (u.dead || u.team !== byTeam || !u.detector) continue;
+    if (dist(u, cloakedUnit) <= u.detectionRange) return true;
+  }
+  // Terran scan zones
+  if (scanZones) {
+    for (const sz of scanZones) {
+      if (sz.team === byTeam && dist(sz, cloakedUnit) <= sz.radius) return true;
+    }
+  }
+  return false;
+}
+
 function findTarget(unit) {
   const isPlayer = unit.team === 'player';
 
@@ -903,6 +955,8 @@ function findTarget(unit) {
 
   for (const u of units) {
     if (u.dead || u.team === unit.team) continue;
+    // Cloaked units can only be targeted if detected
+    if (u.cloaked && !isDetected(u, unit.team)) continue;
     const d = dist(unit, u);
     if (d < bestDist && d < maxRange) { bestDist = d; best = u; }
   }
@@ -1166,18 +1220,72 @@ function getBuildingForUnit(unitType, buildings) {
 // Process all building queues for a team
 function updateAllBuildingQueues(buildings, team, dt) {
   for (const b of buildings) {
+    // Update macro cooldown
+    if (b.macroCooldown > 0) b.macroCooldown -= dt;
+    // Chrono boost: speed up production
+    if (b.chronoTimer > 0) b.chronoTimer -= dt;
     if (!b.queue || b.queue.length === 0) continue;
     if (!b.built) continue; // can't produce until built
     const item = b.queue[0];
-    item.timeLeft -= dt;
+    const speed = b.chronoTimer > 0 ? 1.5 : 1;
+    item.timeLeft -= dt * speed;
     if (item.timeLeft <= 0) {
       b.queue.shift();
+      // Handle upgrade completion
+      if (item.type === 'upgrade_attack') {
+        if (team === 'player') playerUpgrades.attack = Math.min(3, playerUpgrades.attack + 1);
+        else enemyUpgrades.attack = Math.min(3, enemyUpgrades.attack + 1);
+        continue;
+      }
+      if (item.type === 'upgrade_armor') {
+        if (team === 'player') playerUpgrades.armor = Math.min(3, playerUpgrades.armor + 1);
+        else enemyUpgrades.armor = Math.min(3, enemyUpgrades.armor + 1);
+        continue;
+      }
       // Spawn unit near the building
       const baseY = team === 'player' ? PLAYER_BASE_Y : ENEMY_BASE_Y;
       const lane = Math.random() < 0.5 ? 0 : 1;
       const x = LANE_X[lane] + (Math.random()-0.5)*30;
       spawnUnit(item.type, x, baseY, team);
     }
+  }
+}
+
+// Macro abilities
+function activateMacro(base, team) {
+  const faction = team === 'player' ? playerFaction : enemyFaction;
+  if (faction === 'terran') {
+    // MULE: spawn temporary super-worker
+    const mule = spawnUnit('scv', base.x + (Math.random()-0.5)*30, base.y, team);
+    if (mule) {
+      mule.despawnTimer = 30;
+      mule.mineRate = 1.2; // 4x faster
+      mule.worker = true;
+      mule.homeBase = { x: base.x, y: base.y };
+      mule.color = '#ffff44'; // gold tint
+    }
+    base.macroCooldown = 60;
+  } else if (faction === 'protoss') {
+    // Chrono Boost: speed up next production
+    // Find a production building with a queue
+    const buildings = team === 'player' ? playerBuildings : enemyBuildings;
+    let target = null;
+    for (const b of buildings) {
+      if (b.built && b.queue && b.queue.length > 0 && (!b.chronoTimer || b.chronoTimer <= 0)) {
+        target = b;
+        break;
+      }
+    }
+    if (target) {
+      target.chronoTimer = 20;
+      spawnParticle(target.x, target.y, '#00ccff', 12);
+    }
+    base.macroCooldown = 45;
+  } else if (faction === 'zerg') {
+    // Spawn Larva: next 4 units from this hatchery cost 20% less
+    base.larvaeBonus = 4;
+    base.macroCooldown = 40;
+    spawnParticle(base.x, base.y, '#44ff44', 12);
   }
 }
 
@@ -1415,6 +1523,44 @@ function updateGame(dt) {
   }
   forceFields = forceFields.filter(ff => ff.life > 0);
 
+  // Update psionic storm zones
+  for (const sz of stormZones) {
+    sz.timer -= dt;
+    sz.tickTimer -= dt;
+    if (sz.tickTimer <= 0) {
+      sz.tickTimer = 0.5;
+      for (const u of units) {
+        if (u.dead || u.team === sz.team) continue;
+        if (dist(u, sz) <= 45) dealDamage(u, sz.dmg);
+      }
+    }
+  }
+  stormZones = stormZones.filter(sz => sz.timer > 0);
+
+  // Update auto-turrets
+  for (const t of autoTurrets) {
+    t.timer -= dt;
+    t.atkTimer -= dt;
+    if (t.atkTimer <= 0) {
+      let best = null, bestD = Infinity;
+      for (const u of units) {
+        if (u.dead || u.team === t.team) continue;
+        const d = dist(t, u);
+        if (d < t.range && d < bestD) { bestD = d; best = u; }
+      }
+      if (best) {
+        dealDamage(best, t.dmg);
+        spawnParticle(best.x, best.y, '#aaccff', 4);
+        t.atkTimer = 1.0;
+      }
+    }
+  }
+  autoTurrets = autoTurrets.filter(t => t.timer > 0 && t.hp > 0);
+
+  // Update scan zones
+  for (const sz of scanZones) sz.timer -= dt;
+  scanZones = scanZones.filter(sz => sz.timer > 0);
+
   // AI
   updateEnemyAI(dt);
 
@@ -1437,15 +1583,37 @@ function updateGame(dt) {
     const target = skipTarget ? null : findTarget(unit);
     unit.target = target;
 
+    // Fungal root: can't move
+    if (unit.fungalRootTimer > 0) unit.fungalRootTimer -= dt;
+    // Despawn timer (MULE, auto-turret)
+    if (unit.despawnTimer > 0) {
+      unit.despawnTimer -= dt;
+      if (unit.despawnTimer <= 0) { unit.hp = 0; unit.dead = true; continue; }
+    }
     // Siege tank: can't move in siege mode
-    const effectiveSpeed = unit.siegeMode ? 0 : unit.speed;
+    let effectiveSpeed = unit.siegeMode ? 0 : unit.speed;
+    if (unit.fungalRootTimer > 0) effectiveSpeed = 0;
+    // Stim Pack: Marines auto-stim when engaging
+    if (unit.type === 'marine' && target && unit.stimTimer <= 0 && unit.hp > 15) {
+      unit.stimTimer = 5;
+      unit.hp -= 10;
+      spawnParticle(unit.x, unit.y, '#ff4444', 6);
+    }
+    if (unit.stimTimer > 0) {
+      unit.stimTimer -= dt;
+      effectiveSpeed *= 1.5;
+    }
     // Ultralisk frenzy: +50% attack speed below 30% HP
     let effectiveAtkSpeed = unit.atkSpeed;
+    if (unit.stimTimer > 0) effectiveAtkSpeed *= 0.5;
     if (unit.type === 'ultralisk' && unit.hp < unit.maxHp * 0.3) {
       effectiveAtkSpeed *= 0.67;
     }
-    // Void Ray: damage ramp
-    let effectiveDmg = unit.dmg;
+    // Yamato cooldown
+    if (unit.yamatoTimer > 0) unit.yamatoTimer -= dt;
+    // Attack upgrades: +10% per level
+    const atkUpgrades = unit.team === 'player' ? playerUpgrades : enemyUpgrades;
+    let effectiveDmg = Math.floor(unit.dmg * (1 + atkUpgrades.attack * 0.1));
     if (unit.type === 'voidray') {
       if (target && target === unit.lastTarget) {
         unit.voidrayAttackTime += dt;
@@ -1465,7 +1633,68 @@ function updateGame(dt) {
       effectiveSplash = 40;
     }
 
-    if (target) {
+    // High Templar: Psionic Storm (spell caster, doesn't auto-attack)
+    if (unit.type === 'hightemplar' && target && unit.stormTimer <= 0) {
+      const d = dist(unit, target);
+      if (d <= effectiveRange) {
+        stormZones.push({ x: target.x, y: target.y, timer: 3, dmg: 25, team: unit.team, tickTimer: 0 });
+        unit.stormTimer = 15;
+        spawnParticle(target.x, target.y, '#8888ff', 15);
+      }
+    }
+    if (unit.stormTimer > 0) unit.stormTimer -= dt;
+    // Infestor: Fungal Growth (AoE root + damage)
+    if (unit.type === 'infestor' && target && unit.fungalTimer <= 0) {
+      const d = dist(unit, target);
+      if (d <= effectiveRange) {
+        // Root and damage all enemies in radius 40
+        for (const e of units) {
+          if (e.dead || e.team === unit.team) continue;
+          if (dist(e, target) <= 40) {
+            e.fungalRootTimer = 3;
+            dealDamage(e, 30);
+          }
+        }
+        unit.fungalTimer = 12;
+        spawnParticle(target.x, target.y, '#44aa44', 15);
+      }
+    }
+    if (unit.fungalTimer > 0) unit.fungalTimer -= dt;
+    // Raven: Auto-Turret drop
+    if (unit.type === 'raven' && target && unit.atkTimer <= 0) {
+      const d = dist(unit, target);
+      if (d <= 130) {
+        autoTurrets.push({ x: target.x, y: target.y, hp: 150, dmg: 25, range: 100, team: unit.team, timer: 15, atkTimer: 0 });
+        unit.atkTimer = 20;
+        spawnParticle(target.x, target.y, '#aaccff', 10);
+      }
+    }
+    // Guardian Shield: Sentry creates damage reduction aura
+    if (unit.type === 'sentry' && unit.guardianShieldTimer <= 0) {
+      // Activate when enemies are nearby
+      let enemyNear = false;
+      for (const e of units) {
+        if (e.dead || e.team === unit.team) continue;
+        if (dist(unit, e) < 150) { enemyNear = true; break; }
+      }
+      if (enemyNear) {
+        unit.guardianShieldTimer = 20;
+        unit.guardianShieldActive = 8;
+      }
+    }
+    if (unit.guardianShieldTimer > 0) unit.guardianShieldTimer -= dt;
+    if (unit.guardianShieldActive > 0) unit.guardianShieldActive -= dt;
+    // Skip normal attack for spell casters
+    if (unit.type === 'hightemplar' || unit.type === 'infestor' || unit.type === 'raven' || unit.type === 'observer' || unit.type === 'overseer') {
+      // These units don't auto-attack — move toward target if too far
+      if (target && effectiveSpeed > 0) {
+        const d = dist(unit, target);
+        if (d > effectiveRange) {
+          const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
+          moveWithSlide(unit, Math.cos(angle) * effectiveSpeed * 50, Math.sin(angle) * effectiveSpeed * 50, dt);
+        }
+      }
+    } else if (target) {
       const d = dist(unit, target);
       const targetR = target.r || 0;
 
@@ -1480,7 +1709,13 @@ function updateGame(dt) {
         if (unit.atkTimer <= 0) {
           unit.atkTimer = effectiveAtkSpeed;
 
-          if (unit.healer) {
+          // Yamato Cannon: Battlecruiser fires massive blast
+          if (unit.type === 'battlecruiser' && unit.yamatoTimer <= 0 && target.hp > 200) {
+            dealDamage(target, 300);
+            unit.yamatoTimer = 45;
+            spawnParticle(target.x, target.y, '#ffff00', 25);
+            spawnParticle(unit.x, unit.y, '#ffaa00', 15);
+          } else if (unit.healer) {
             target.hp = Math.min(target.maxHp, target.hp + unit.healAmt);
             spawnParticle(target.x, target.y, '#88ff88', 8);
           } else if (unit.suicide) {
@@ -1495,6 +1730,25 @@ function updateGame(dt) {
           } else {
             if (effectiveRange > 40) {
               projectiles.push({ x: unit.x, y: unit.y, tx: target.x, ty: target.y, dmg: effectiveDmg, team: unit.team, speed: 250, color: unit.color, splash: effectiveSplash, target });
+              // Mutalisk bounce: hit 2 additional nearby targets with reduced damage
+              if (unit.type === 'mutalisk') {
+                let bounceTarget = target;
+                let bounceDmg = effectiveDmg;
+                for (let b = 0; b < 2; b++) {
+                  bounceDmg = Math.floor(bounceDmg * 0.66);
+                  let nearest = null, nearD = Infinity;
+                  for (const e of units) {
+                    if (e.dead || e.team === unit.team || e === bounceTarget) continue;
+                    const bd = dist(bounceTarget, e);
+                    if (bd < 40 && bd < nearD) { nearD = bd; nearest = e; }
+                  }
+                  if (nearest) {
+                    dealDamage(nearest, bounceDmg);
+                    spawnParticle(nearest.x, nearest.y, '#ee5555', 3);
+                    bounceTarget = nearest;
+                  } else break;
+                }
+              }
             } else {
               if (effectiveSplash > 0) {
                 dealSplash(target.x, target.y, effectiveSplash, effectiveDmg, unit.team);
@@ -1666,7 +1920,20 @@ function updateGame(dt) {
 
 function dealDamage(target, dmg) {
   // Ghost cloak: 50% damage reduction
-  if (target.type === 'ghost') dmg = Math.floor(dmg * 0.5);
+  if (target.type === 'ghost' && target.cloaked) dmg = Math.floor(dmg * 0.5);
+  // Guardian Shield: 30% damage reduction from nearby Sentry
+  if (target.team) {
+    for (const u of units) {
+      if (u.dead || u.team !== target.team || u.type !== 'sentry') continue;
+      if (u.guardianShieldActive > 0 && dist(u, target) <= 80) {
+        dmg = Math.floor(dmg * 0.7);
+        break;
+      }
+    }
+  }
+  // Armor upgrades: reduce damage
+  const upgrades = target.team === 'player' ? playerUpgrades : target.team === 'enemy' ? enemyUpgrades : null;
+  if (upgrades) dmg = Math.max(1, dmg - upgrades.armor);
   if (target.shield && target.shield > 0) {
     const absorbed = Math.min(target.shield, dmg);
     target.shield -= absorbed;
@@ -2032,6 +2299,63 @@ function updateEnemyAI(dt) {
       }
     }
   }
+
+  // ---- AI: Upgrade building (after 2nd prod building) ----
+  const upgradeTypes = { terran: 'engineeringbay', protoss: 'forge', zerg: 'evolutionchamber' };
+  const upgBldgType = upgradeTypes[enemyFaction];
+  const hasUpgBldg = enemyBuildings.some(b => b.type === upgBldgType);
+  const prodBldgCount = enemyBuildings.filter(b => {
+    const bd = BUILDING_DEFS[b.type];
+    return bd && bd.unlocks && bd.unlocks.length > 0 && !bd.isExpansion && !bd.isThirdExpansion && b.type !== '_base';
+  }).length;
+  if (!hasUpgBldg && prodBldgCount >= 2 && enemyMinerals >= BUILDING_DEFS[upgBldgType].cost) {
+    aiBuildBuilding(upgBldgType);
+  }
+
+  // ---- AI: Research upgrades ----
+  const upgBldg = enemyBuildings.find(b => b.type === upgBldgType && b.built);
+  if (upgBldg && (!upgBldg.queue || upgBldg.queue.length === 0)) {
+    const upgCosts = [{ m: 100, g: 100 }, { m: 175, g: 175 }, { m: 250, g: 250 }];
+    for (const upgType of ['attack', 'armor']) {
+      const level = enemyUpgrades[upgType];
+      if (level >= 3) continue;
+      const cost = upgCosts[level];
+      if (enemyMinerals >= cost.m && enemyGas >= cost.g) {
+        enemyMinerals -= cost.m;
+        enemyGas -= cost.g;
+        if (!upgBldg.queue) upgBldg.queue = [];
+        upgBldg.queue.push({ type: 'upgrade_' + upgType, timeLeft: 20 + level * 10, totalTime: 20 + level * 10 });
+        break;
+      }
+    }
+  }
+
+  // ---- AI: Use macro abilities ----
+  const enemyBase = enemyBuildings.find(b => b.type === '_base');
+  if (enemyBase && (!enemyBase.macroCooldown || enemyBase.macroCooldown <= 0)) {
+    activateMacro(enemyBase, 'enemy');
+  }
+
+  // ---- AI: Build detectors if player has cloaked units ----
+  const playerHasCloaked = units.some(u => !u.dead && u.team === 'player' && u.cloaked);
+  if (playerHasCloaked) {
+    const hasDetector = units.some(u => !u.dead && u.team === 'enemy' && u.detector);
+    if (!hasDetector) {
+      // Build detector unit: Observer (protoss), Overseer (zerg), or use Scan (terran)
+      if (enemyFaction === 'terran') {
+        // Terran: drop a scan
+        const nearestCloaked = units.find(u => !u.dead && u.team === 'player' && u.cloaked);
+        if (nearestCloaked) {
+          scanZones.push({ x: nearestCloaked.x, y: nearestCloaked.y, radius: 100, timer: 8, team: 'enemy' });
+        }
+      } else {
+        const detectorType = enemyFaction === 'protoss' ? 'observer' : 'overseer';
+        if (canAffordUnit(detectorType, 'enemy')) {
+          aiBuildUnit(detectorType);
+        }
+      }
+    }
+  }
 }
 
 // ---- End Game ----
@@ -2091,11 +2415,76 @@ function render() {
     ctx.beginPath(); ctx.arc(ff.x, ff.y, ff.r, 0, Math.PI * 2); ctx.stroke();
   }
 
+  // Psionic storm zones
+  for (const sz of stormZones) {
+    if (!isVisible(sz.y)) continue;
+    const alpha = sz.timer / 3;
+    ctx.fillStyle = `rgba(100, 100, 255, ${alpha * 0.25})`;
+    ctx.beginPath(); ctx.arc(sz.x, sz.y, 45, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(150, 150, 255, ${alpha * 0.6})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(sz.x, sz.y, 45, 0, Math.PI * 2); ctx.stroke();
+    // Lightning particles
+    for (let i = 0; i < 3; i++) {
+      const lx = sz.x + (Math.random()-0.5) * 70;
+      const ly = sz.y + (Math.random()-0.5) * 70;
+      ctx.strokeStyle = `rgba(180, 180, 255, ${Math.random() * 0.8})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(sz.x + (Math.random()-0.5)*30, sz.y + (Math.random()-0.5)*30);
+      ctx.lineTo(lx, ly); ctx.stroke();
+    }
+  }
+
+  // Auto-turrets
+  for (const t of autoTurrets) {
+    if (!isVisible(t.y)) continue;
+    const tc = t.team === 'player' ? '#88ccff' : '#ff8888';
+    ctx.fillStyle = tc;
+    ctx.fillRect(t.x - 5, t.y - 5, 10, 10);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(t.x - 5, t.y - 5, 10, 10);
+    ctx.fillStyle = '#fff';
+    ctx.font = '5px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('T', t.x, t.y + 2);
+  }
+
+  // Scan zones
+  for (const sz of scanZones) {
+    if (!isVisible(sz.y)) continue;
+    const alpha = sz.timer / 8;
+    ctx.strokeStyle = `rgba(255, 255, 100, ${alpha * 0.5})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(sz.x, sz.y, sz.radius, 0, Math.PI * 2); ctx.stroke();
+  }
+
   // Units
   for (const u of units) {
     if (u.dead) continue;
     if (!isVisible(u.y)) continue;
+    // Cloaked enemy units: faint shimmer if not detected, skip if fully invisible
+    if (u.cloaked && u.team !== 'player') {
+      if (!isDetected(u, 'player')) {
+        ctx.globalAlpha = 0.15;
+        drawUnit(u);
+        ctx.globalAlpha = 1;
+        continue;
+      }
+    }
     drawUnit(u);
+    // Guardian shield aura
+    if (u.type === 'sentry' && u.guardianShieldActive > 0 && !u.dead) {
+      ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(u.x, u.y, 80, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Stim visual
+    if (u.stimTimer > 0) {
+      ctx.strokeStyle = 'rgba(255, 50, 50, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(u.x, u.y, u.r + 2, 0, Math.PI * 2); ctx.stroke();
+    }
   }
 
   // Projectiles
@@ -4030,6 +4419,55 @@ function drawProductionPanel() {
         }
         y += BTN_H + 2;
       }
+
+      // Upgrade buttons for upgrade buildings
+      if (bdef.isUpgrade) {
+        const upgCosts = [{ m: 100, g: 100 }, { m: 175, g: 175 }, { m: 250, g: 250 }];
+        for (const upgType of ['attack', 'armor']) {
+          const level = playerUpgrades[upgType];
+          if (level >= 3) continue;
+          if (y > VIEWPORT_H + 10) break;
+          const cost = upgCosts[level];
+          const affordable = playerMinerals >= cost.m && playerGas >= cost.g;
+          const researching = builtGroup.some(b => b.queue && b.queue.some(q => q.type === 'upgrade_' + upgType));
+          if (y > -BTN_H - 5) {
+            ctx.fillStyle = researching ? 'rgba(255,170,0,0.3)' : affordable ? 'rgba(20,40,80,0.9)' : 'rgba(20,20,40,0.6)';
+            ctx.fillRect(px + 4, y, BTN_W, BTN_H - 4);
+            ctx.strokeStyle = affordable ? fc.primary : '#444';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px + 4, y, BTN_W, BTN_H - 4);
+            ctx.fillStyle = affordable ? '#fff' : '#666';
+            ctx.font = 'bold 7px monospace';
+            ctx.textAlign = 'left';
+            const label = upgType === 'attack' ? 'ATK +' + (level + 1) : 'ARM +' + (level + 1);
+            ctx.fillText(label, px + 8, y + 10);
+            ctx.fillStyle = '#88ccff';
+            ctx.font = '6px monospace';
+            ctx.fillText(cost.m + '/' + cost.g, px + 8, y + 20);
+          }
+          y += BTN_H + 2;
+        }
+      }
+
+      // Macro ability button for base buildings
+      if (btype === '_base') {
+        if (y > -BTN_H - 5 && y < VIEWPORT_H) {
+          const macroNames = { terran: 'MULE', protoss: 'CHRONO', zerg: 'LARVAE' };
+          const macroName = macroNames[playerFaction] || 'MACRO';
+          // Check cooldown on any base
+          const anyReady = builtGroup.some(b => !b.macroCooldown || b.macroCooldown <= 0);
+          ctx.fillStyle = anyReady ? 'rgba(40,60,20,0.9)' : 'rgba(30,30,30,0.6)';
+          ctx.fillRect(px + 4, y, BTN_W, BTN_H - 8);
+          ctx.strokeStyle = anyReady ? '#88ff44' : '#444';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px + 4, y, BTN_W, BTN_H - 8);
+          ctx.fillStyle = anyReady ? '#88ff44' : '#666';
+          ctx.font = 'bold 7px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(macroName, px + PANEL_W/2, y + 12);
+        }
+        y += BTN_H;
+      }
     }
 
     y += 2;
@@ -4343,7 +4781,7 @@ function getPanelButtons() {
     const producible = (bdef.unlocks && bdef.unlocks.length > 0) ? bdef.unlocks : (btype === '_base' ? [WORKER_TYPE[playerFaction]] : []);
 
     // Header — tappable to toggle collapse
-    if (builtGroup.length > 0 && producible.length > 0) {
+    if (builtGroup.length > 0 && (producible.length > 0 || bdef.isUpgrade)) {
       buttons.push({ type: '_toggle', x: px + 2, y: y - 1, w: PANEL_W - 4, h: 12, groupKey: btype });
     }
     y += 13; // header
@@ -4360,6 +4798,22 @@ function getPanelButtons() {
         if (y > VIEWPORT_H + 10) break;
         buttons.push({ type: utype, x: px + 4, y, isBuilding: false });
         y += BTN_H + 2;
+      }
+
+      // Upgrade buttons
+      if (bdef.isUpgrade) {
+        for (const upgType of ['attack', 'armor']) {
+          const level = playerUpgrades[upgType];
+          if (level >= 3) continue;
+          buttons.push({ type: '_upgrade_' + upgType, x: px + 4, y, w: BTN_W, h: BTN_H - 4, upgType, level, builtGroup });
+          y += BTN_H + 2;
+        }
+      }
+
+      // Macro ability button
+      if (btype === '_base') {
+        buttons.push({ type: '_macro', x: px + 4, y, w: BTN_W, h: BTN_H - 8, builtGroup });
+        y += BTN_H;
       }
     }
 
@@ -4426,6 +4880,30 @@ function handleInput(x, y) {
       if (btn.isGas) {
         if (btn.type === '_gas_plus' && btn.geyser.workers < 3) btn.geyser.workers++;
         if (btn.type === '_gas_minus' && btn.geyser.workers > 0) btn.geyser.workers--;
+        return;
+      }
+      // Upgrade research
+      if (btn.type === '_upgrade_attack' || btn.type === '_upgrade_armor') {
+        const upgType = btn.upgType;
+        const level = playerUpgrades[upgType];
+        if (level >= 3) return;
+        const costs = [{ m: 100, g: 100 }, { m: 175, g: 175 }, { m: 250, g: 250 }];
+        const cost = costs[level];
+        if (playerMinerals < cost.m || playerGas < cost.g) return;
+        // Find a built upgrade building without a current upgrade in queue
+        const bld = btn.builtGroup.find(b => !b.queue || b.queue.length === 0);
+        if (!bld) return;
+        playerMinerals -= cost.m;
+        playerGas -= cost.g;
+        if (!bld.queue) bld.queue = [];
+        bld.queue.push({ type: 'upgrade_' + upgType, timeLeft: 20 + level * 10, totalTime: 20 + level * 10 });
+        return;
+      }
+      // Macro ability
+      if (btn.type === '_macro') {
+        const base = btn.builtGroup.find(b => !b.macroCooldown || b.macroCooldown <= 0);
+        if (!base) return;
+        activateMacro(base, 'player');
         return;
       }
       // Building construction
