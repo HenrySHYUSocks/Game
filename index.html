@@ -87,18 +87,42 @@ canvas { display: block; }
     <div class="menuBtn" onclick="showFactionSelect()">BATTLE</div>
   </div>
   <div id="factionScreen">
-    <div class="title" style="font-size:1.5em; margin-bottom:10px;">CHOOSE YOUR RACE</div>
-    <div class="factionCard fc-terran" onclick="startGame('terran')">
-      <h3>TERRAN</h3>
-      <p>Versatile human forces. Marines, Siege Tanks, Medics.</p>
+    <div id="pickPlayerRace">
+      <div class="title" style="font-size:1.5em; margin-bottom:10px;">CHOOSE YOUR RACE</div>
+      <div class="factionCard fc-terran" onclick="pickPlayerFaction('terran')">
+        <h3>TERRAN</h3>
+        <p>Versatile human forces. Marines, Siege Tanks, Medics.</p>
+      </div>
+      <div class="factionCard fc-protoss" onclick="pickPlayerFaction('protoss')">
+        <h3>PROTOSS</h3>
+        <p>Powerful psionic warriors. Zealots, Stalkers, High Templar.</p>
+      </div>
+      <div class="factionCard fc-zerg" onclick="pickPlayerFaction('zerg')">
+        <h3>ZERG</h3>
+        <p>Overwhelming swarm. Zerglings, Roaches, Hydralisks.</p>
+      </div>
     </div>
-    <div class="factionCard fc-protoss" onclick="startGame('protoss')">
-      <h3>PROTOSS</h3>
-      <p>Powerful psionic warriors. Zealots, Stalkers, High Templar.</p>
-    </div>
-    <div class="factionCard fc-zerg" onclick="startGame('zerg')">
-      <h3>ZERG</h3>
-      <p>Overwhelming swarm. Zerglings, Roaches, Hydralisks.</p>
+    <div id="pickEnemyRace" style="display:none;">
+      <div class="title" style="font-size:1.5em; margin-bottom:10px;">CHOOSE OPPONENT</div>
+      <div class="factionCard" onclick="pickEnemyFaction('random')" style="border-color:#00d4ff;">
+        <h3 style="color:#00d4ff;">RANDOM</h3>
+        <p>Face a random opponent race.</p>
+      </div>
+      <div class="factionCard fc-terran" onclick="pickEnemyFaction('terran')">
+        <h3>TERRAN</h3>
+        <p>Versatile human forces.</p>
+      </div>
+      <div class="factionCard fc-protoss" onclick="pickEnemyFaction('protoss')">
+        <h3>PROTOSS</h3>
+        <p>Powerful psionic warriors.</p>
+      </div>
+      <div class="factionCard fc-zerg" onclick="pickEnemyFaction('zerg')">
+        <h3>ZERG</h3>
+        <p>Overwhelming swarm.</p>
+      </div>
+      <div style="margin-top:8px;">
+        <div class="menuBtn" style="padding:6px 16px; font-size:0.7em; background:#333;" onclick="backToPlayerRace()">BACK</div>
+      </div>
     </div>
     <div style="margin-top:15px; text-align:center;">
       <div style="color:#888; font-size:0.7em; margin-bottom:6px;">AI DIFFICULTY</div>
@@ -722,12 +746,31 @@ function showFactionSelect() {
   document.getElementById('menuScreen').style.display = 'none';
   document.getElementById('factionScreen').style.display = 'flex';
   document.getElementById('gameOverScreen').style.display = 'none';
+  document.getElementById('pickPlayerRace').style.display = '';
+  document.getElementById('pickEnemyRace').style.display = 'none';
 }
 
-function startGame(faction) {
+function pickPlayerFaction(faction) {
   playerFaction = faction;
-  const others = FACTIONS.filter(f => f !== faction);
-  enemyFaction = others[Math.floor(Math.random() * others.length)];
+  document.getElementById('pickPlayerRace').style.display = 'none';
+  document.getElementById('pickEnemyRace').style.display = '';
+}
+
+function pickEnemyFaction(choice) {
+  if (choice === 'random') {
+    enemyFaction = FACTIONS[Math.floor(Math.random() * FACTIONS.length)];
+  } else {
+    enemyFaction = choice;
+  }
+  startGame();
+}
+
+function backToPlayerRace() {
+  document.getElementById('pickPlayerRace').style.display = '';
+  document.getElementById('pickEnemyRace').style.display = 'none';
+}
+
+function startGame() {
 
   document.getElementById('menuScreen').style.display = 'none';
   document.getElementById('factionScreen').style.display = 'none';
