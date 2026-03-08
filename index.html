@@ -276,17 +276,26 @@ function moveWithSlide(unit, vx, vy, dt) {
     const sy = unit.y + vy * dt;
     const yOk = !posBlocked(unit.x, sy, unit.r);
     if (yOk) unit.y = sy;
-    // If fully stuck, try perpendicular nudge to escape
+    // If fully stuck, try escape directions — prefer directions toward goal
     if (!xOk && !yOk) {
       const speed = Math.sqrt(vx*vx + vy*vy) * dt;
-      // Try 4 perpendicular directions to find an escape
-      const dirs = [
-        { dx: 1, dy: 0 }, { dx: -1, dy: 0 },
-        { dx: 0, dy: 1 }, { dx: 0, dy: -1 },
-        { dx: 0.7, dy: 0.7 }, { dx: -0.7, dy: 0.7 },
-        { dx: 0.7, dy: -0.7 }, { dx: -0.7, dy: -0.7 },
-      ];
-      for (const d of dirs) {
+      const goalX = unit.x + vx * dt * 10; // far target direction
+      const goalY = unit.y + vy * dt * 10;
+      // 12 escape directions sorted by how well they move toward the goal
+      const angles = [];
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        angles.push({ dx: Math.cos(a), dy: Math.sin(a) });
+      }
+      // Sort by distance to goal after moving
+      angles.sort((a, b) => {
+        const ax = unit.x + a.dx * speed, ay = unit.y + a.dy * speed;
+        const bx = unit.x + b.dx * speed, by = unit.y + b.dy * speed;
+        const da = (ax-goalX)*(ax-goalX) + (ay-goalY)*(ay-goalY);
+        const db = (bx-goalX)*(bx-goalX) + (by-goalY)*(by-goalY);
+        return da - db;
+      });
+      for (const d of angles) {
         const tx = unit.x + d.dx * speed;
         const ty = unit.y + d.dy * speed;
         if (!posBlocked(tx, ty, unit.r)) {
@@ -957,10 +966,10 @@ function updateWorker(unit, dt) {
       if (d < 12) {
         unit.miningState = 'mining';
         unit.miningTimer = MINE_TIME;
+        unit.homeBase = findNearestBase(unit); // recalc at mining location
       } else {
         const angle = Math.atan2(unit.assignedPatch.y - unit.y, unit.assignedPatch.x - unit.x);
-        unit.x += Math.cos(angle) * moveSpeed * dt;
-        unit.y += Math.sin(angle) * moveSpeed * dt;
+        moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
       }
       break;
     }
@@ -984,10 +993,10 @@ function updateWorker(unit, dt) {
       if (d < 15) {
         unit.miningState = 'miningGas';
         unit.miningTimer = 2.5;
+        unit.homeBase = findNearestBase(unit); // recalc at gas location
       } else {
         const angle = Math.atan2(unit.assignedGeyser.y - unit.y, unit.assignedGeyser.x - unit.x);
-        unit.x += Math.cos(angle) * moveSpeed * dt;
-        unit.y += Math.sin(angle) * moveSpeed * dt;
+        moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
       }
       break;
     }
@@ -1012,19 +1021,24 @@ function updateWorker(unit, dt) {
       if (d < 20) {
         if (unit.carryType === 'gas') {
           if (unit.team === 'player') playerGas = Math.min(9999, playerGas + unit.carrying);
-          else enemyGas = Math.min(9999, enemyGas + unit.carrying);
+          else {
+            const bonus = 1 + (AI_PARAMS[aiDifficulty].incomeBonus || 0);
+            enemyGas = Math.min(9999, enemyGas + Math.ceil(unit.carrying * bonus));
+          }
           spawnParticle(unit.x, unit.y, '#44ee66', 3);
         } else {
           if (unit.team === 'player') playerMinerals += unit.carrying;
-          else enemyMinerals += unit.carrying;
+          else {
+            const bonus = 1 + (AI_PARAMS[aiDifficulty].incomeBonus || 0);
+            enemyMinerals += Math.ceil(unit.carrying * bonus);
+          }
           spawnParticle(unit.x, unit.y, '#44ccff', 3);
         }
         unit.carrying = 0;
         unit.miningState = 'idle';
       } else {
         const angle = Math.atan2(hb.y - unit.y, hb.x - unit.x);
-        unit.x += Math.cos(angle) * moveSpeed * dt;
-        unit.y += Math.sin(angle) * moveSpeed * dt;
+        moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
       }
       break;
     }
@@ -1241,7 +1255,7 @@ function hasRefineryOnGeyser(geyser, team) {
   const buildings = team === 'player' ? playerBuildings : enemyBuildings;
   return buildings.some(b => {
     const bdef = BUILDING_DEFS[b.type];
-    return bdef && bdef.gasBuilding && b.built &&
+    return bdef && bdef.gasBuilding &&
            Math.abs(b.x - geyser.x) < 20 && Math.abs(b.y - geyser.y) < 20;
   });
 }
@@ -1407,8 +1421,8 @@ function updateGame(dt) {
         // Zealot charge: burst forward
         if (unit.type === 'zealot' && d > 60 && d < 120 && unit.chargeTimer <= 0) {
           const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
-          unit.x += Math.cos(angle) * effectiveSpeed * 50 * 3 * dt;
-          unit.y += Math.sin(angle) * effectiveSpeed * 50 * 3 * dt;
+          const chargeSpeed = effectiveSpeed * 50 * 3;
+          moveWithSlide(unit, Math.cos(angle) * chargeSpeed, Math.sin(angle) * chargeSpeed, dt);
           unit.chargeTimer = 5;
           spawnParticle(unit.x, unit.y, '#ffcc00', 5);
         } else if (effectiveSpeed > 0) {
@@ -1439,8 +1453,14 @@ function updateGame(dt) {
         targetX = playerRallyX !== null ? playerRallyX : ARENA_W / 2;
         targetY = playerRallyY !== null ? playerRallyY : GAME_H - 250;
       } else {
-        targetX = ARENA_W / 2;
-        targetY = enemyStance === 'defend' ? 250 : GAME_H - 90;
+        if (enemyStance === 'defend') {
+          targetX = ARENA_W / 2;
+          targetY = 250;
+        } else {
+          // Attack toward player base
+          targetX = towers.player.base.x;
+          targetY = towers.player.base.y - 50;
+        }
       }
       const dx = targetX - unit.x;
       const dy = targetY - unit.y;
@@ -1626,32 +1646,35 @@ let aiDifficulty = 'hard';
 
 const AI_PARAMS = {
   easy: {
-    decisionMin: 1.5, decisionMax: 2.5,
-    attackThreshold: 1.8, attackCooldown: 90,
+    decisionMin: 1.2, decisionMax: 2.0,
+    attackThreshold: 1.5, attackCooldown: 60,
     expandTime: 999, // never expand
     prodBuilding2: 999, prodBuilding3: 999,
-    workerCap: 8, gasTime: 30,
+    workerCap: 10, gasTime: 25,
     rushTime: 999, rushUnits: 99,
-    maxQueue: 2, supplyBuffer: 1,
+    maxQueue: 2, supplyBuffer: 2,
     counterWeight: 0, // no countering
+    incomeBonus: 0,
   },
   hard: {
-    decisionMin: 0.4, decisionMax: 0.8,
-    attackThreshold: 0.9, attackCooldown: 35,
-    expandTime: 35, prodBuilding2: 50, prodBuilding3: 180,
-    workerCap: 16, gasTime: 8,
-    rushTime: 45, rushUnits: 3,
-    maxQueue: 3, supplyBuffer: 5,
-    counterWeight: 3,
+    decisionMin: 0.3, decisionMax: 0.6,
+    attackThreshold: 0.7, attackCooldown: 20,
+    expandTime: 25, prodBuilding2: 30, prodBuilding3: 90,
+    workerCap: 20, gasTime: 6,
+    rushTime: 30, rushUnits: 2,
+    maxQueue: 4, supplyBuffer: 6,
+    counterWeight: 4,
+    incomeBonus: 0.3, // 30% bonus mineral income
   },
   impossible: {
-    decisionMin: 0.15, decisionMax: 0.3,
-    attackThreshold: 0.5, attackCooldown: 12,
-    expandTime: 20, prodBuilding2: 20, prodBuilding3: 45,
-    workerCap: 22, gasTime: 5,
-    rushTime: 20, rushUnits: 2,
+    decisionMin: 0.1, decisionMax: 0.2,
+    attackThreshold: 0.4, attackCooldown: 8,
+    expandTime: 15, prodBuilding2: 15, prodBuilding3: 30,
+    workerCap: 24, gasTime: 4,
+    rushTime: 15, rushUnits: 2,
     maxQueue: 5, supplyBuffer: 8,
     counterWeight: 8,
+    incomeBonus: 0.6, // 60% bonus mineral income
   },
 };
 
@@ -1719,8 +1742,9 @@ function getUnitWeight(unitType, playerComp) {
 
 function aiBuildUnit(unitType) {
   const def = UNIT_DEFS[unitType];
+  const P = AI_PARAMS[aiDifficulty];
   const building = getBuildingForUnit(unitType, enemyBuildings);
-  if (building && building.queue.length < 3) {
+  if (building && building.queue.length < P.maxQueue) {
     enemyMinerals -= def.cost;
     enemyGas -= (def.gasCost || 0);
     building.queue.push({ type: unitType, timeLeft: def.buildTime, totalTime: def.buildTime });
@@ -1896,25 +1920,29 @@ function updateEnemyAI(dt) {
   });
 
   for (const slot of productionSlots) {
-    if (slot.queue.length >= P.maxQueue) continue;
-    const bdef = BUILDING_DEFS[slot.type];
-    const slotUnits = combatUnits.filter(u => bdef.unlocks.includes(u) && canAffordUnit(u, 'enemy'));
-    if (slotUnits.length === 0) continue;
+    // Fill up to maxQueue slots per building per tick
+    while (slot.queue.length < P.maxQueue) {
+      const bdef = BUILDING_DEFS[slot.type];
+      const slotUnits = combatUnits.filter(u => bdef.unlocks.includes(u) && canAffordUnit(u, 'enemy'));
+      if (slotUnits.length === 0) break;
 
-    // Weighted random pick (difficulty affects weight intelligence)
-    const weights = slotUnits.map(u => {
-      if (P.counterWeight === 0) return 1; // Easy: random
-      return getUnitWeight(u, playerComp);
-    });
-    const totalWeight = weights.reduce((a,b) => a+b, 0);
-    let roll = Math.random() * totalWeight;
-    let pick = slotUnits[0];
-    for (let i = 0; i < slotUnits.length; i++) {
-      roll -= weights[i];
-      if (roll <= 0) { pick = slotUnits[i]; break; }
-    }
-    if (canAffordUnit(pick, 'enemy')) {
-      aiBuildUnit(pick);
+      // Weighted random pick (difficulty affects weight intelligence)
+      const weights = slotUnits.map(u => {
+        if (P.counterWeight === 0) return 1; // Easy: random
+        return getUnitWeight(u, playerComp);
+      });
+      const totalWeight = weights.reduce((a,b) => a+b, 0);
+      let roll = Math.random() * totalWeight;
+      let pick = slotUnits[0];
+      for (let i = 0; i < slotUnits.length; i++) {
+        roll -= weights[i];
+        if (roll <= 0) { pick = slotUnits[i]; break; }
+      }
+      if (canAffordUnit(pick, 'enemy')) {
+        aiBuildUnit(pick);
+      } else {
+        break;
+      }
     }
   }
 }
@@ -3751,6 +3779,7 @@ const BTN_H = 36;
 const BTN_W = PANEL_W - 8;
 
 let panelScroll = 0;
+const panelCollapsed = new Set(); // collapsed building group keys
 
 function drawProductionPanel() {
   const px = ARENA_W;
@@ -3804,21 +3833,35 @@ function drawProductionPanel() {
     const bdef = BUILDING_DEFS[btype];
     const builtGroup = group.filter(b => b.built);
     const buildingGroup = group.filter(b => !b.built);
+    const collapsed = panelCollapsed.has(btype);
+    const producible = (bdef.unlocks && bdef.unlocks.length > 0) ? bdef.unlocks : (btype === '_base' ? [WORKER_TYPE[playerFaction]] : []);
 
-    // Header with count
+    // Header with count — tappable to toggle collapse
     if (y > -BTN_H * 4) {
+      // Header background
+      ctx.fillStyle = 'rgba(30,30,60,0.8)';
+      ctx.fillRect(px + 2, y - 1, PANEL_W - 4, 12);
       ctx.fillStyle = builtGroup.length > 0 ? fc.primary : '#666';
       ctx.font = 'bold 7px monospace';
-      ctx.textAlign = 'center';
+      ctx.textAlign = 'left';
       const bname = btype === '_base' ? 'BASE' : bdef.name.toUpperCase();
       const countStr = group.length > 1 ? ' x' + group.length : '';
-      ctx.fillText(bname + countStr, px + PANEL_W/2, y + 7);
+      // Collapse arrow
+      const arrow = (builtGroup.length > 0 && producible.length > 0) ? (collapsed ? '\u25B6 ' : '\u25BC ') : '';
+      ctx.fillText(arrow + bname + countStr, px + 6, y + 8);
+      // Queue count on right side
+      const totalQ = builtGroup.reduce((s, b) => s + (b.queue ? b.queue.length : 0), 0);
+      if (totalQ > 0) {
+        ctx.fillStyle = '#ffcc44';
+        ctx.textAlign = 'right';
+        ctx.fillText('[' + totalQ + ']', px + PANEL_W - 6, y + 8);
+      }
     }
-    y += 10;
+    y += 13;
 
     // Show building progress for any under construction
     if (buildingGroup.length > 0) {
-      const b = buildingGroup[0]; // show first one building
+      const b = buildingGroup[0];
       if (y > -20 && y < VIEWPORT_H) {
         const frac = b.buildProgress / b.buildTime;
         ctx.fillStyle = 'rgba(255,170,0,0.2)';
@@ -3830,56 +3873,57 @@ function drawProductionPanel() {
         ctx.textAlign = 'center';
         ctx.fillText('BUILDING' + (buildingGroup.length > 1 ? ' x' + buildingGroup.length : '') + '...', px + PANEL_W/2, y + 7);
       }
-      y += 14;
+      y += 12;
     }
 
-    if (builtGroup.length === 0) continue;
+    if (builtGroup.length === 0) { y += 2; continue; }
 
-    // Combined queue display — show total across all buildings of this type
-    const allQueued = [];
-    for (const b of builtGroup) {
-      if (b.queue) for (const q of b.queue) allQueued.push(q);
-    }
-    if (allQueued.length > 0) {
-      if (y > -20 && y < VIEWPORT_H) {
-        // Show the first item's progress from the building currently producing
-        const producing = builtGroup.find(b => b.queue && b.queue.length > 0);
-        if (producing) {
-          const q = producing.queue[0];
-          const frac = 1 - q.timeLeft / q.totalTime;
-          ctx.fillStyle = 'rgba(255,170,0,0.15)';
-          ctx.fillRect(px + 4, y, BTN_W, 12);
-          ctx.fillStyle = '#ffaa00';
-          ctx.fillRect(px + 4, y + 8, BTN_W * frac, 3);
-          ctx.fillStyle = '#ffcc44';
-          ctx.font = '6px monospace';
-          ctx.textAlign = 'center';
-          const uname = UNIT_DEFS[q.type] ? UNIT_DEFS[q.type].name : q.type;
-          ctx.fillText(uname + (allQueued.length > 1 ? ` +${allQueued.length-1}` : ''), px + PANEL_W/2, y + 8);
+    // Show content only if not collapsed
+    if (!collapsed) {
+      // Combined queue display — show first item's progress
+      const allQueued = [];
+      for (const b of builtGroup) {
+        if (b.queue) for (const q of b.queue) allQueued.push(q);
+      }
+      if (allQueued.length > 0) {
+        if (y > -20 && y < VIEWPORT_H) {
+          const producing = builtGroup.find(b => b.queue && b.queue.length > 0);
+          if (producing) {
+            const q = producing.queue[0];
+            const frac = 1 - q.timeLeft / q.totalTime;
+            ctx.fillStyle = 'rgba(255,170,0,0.15)';
+            ctx.fillRect(px + 4, y, BTN_W, 12);
+            ctx.fillStyle = '#ffaa00';
+            ctx.fillRect(px + 4, y + 8, BTN_W * frac, 3);
+            ctx.fillStyle = '#ffcc44';
+            ctx.font = '6px monospace';
+            ctx.textAlign = 'center';
+            const uname = UNIT_DEFS[q.type] ? UNIT_DEFS[q.type].name : q.type;
+            ctx.fillText(uname + (allQueued.length > 1 ? ` +${allQueued.length-1}` : ''), px + PANEL_W/2, y + 8);
+          }
         }
+        y += 14;
       }
-      y += 14;
+
+      // Unit buttons
+      for (const utype of producible) {
+        if (y > VIEWPORT_H + 10) break;
+        if (y > -BTN_H - 5) {
+          const def = UNIT_DEFS[utype];
+          const affordable = canAffordUnit(utype, 'player');
+          drawPanelButton(px + 4, y, utype, def.name, def.cost, affordable, false, false);
+        }
+        y += BTN_H + 2;
+      }
     }
 
-    // ONE set of unit buttons for this building type
-    const producible = (bdef.unlocks && bdef.unlocks.length > 0) ? bdef.unlocks : (btype === '_base' ? [WORKER_TYPE[playerFaction]] : []);
-    for (const utype of producible) {
-      if (y > VIEWPORT_H + 10) break;
-      if (y > -BTN_H - 5) {
-        const def = UNIT_DEFS[utype];
-        const affordable = canAffordUnit(utype, 'player');
-        drawPanelButton(px + 4, y, utype, def.name, def.cost, affordable, false, false);
-      }
-      y += BTN_H + 2;
-    }
-
-    y += 4;
+    y += 2;
     if (y > -5 && y < VIEWPORT_H) {
       ctx.strokeStyle = '#333';
       ctx.lineWidth = 0.5;
       ctx.beginPath(); ctx.moveTo(px + 8, y); ctx.lineTo(px + PANEL_W - 8, y); ctx.stroke();
     }
-    y += 4;
+    y += 3;
   }
 
   // Gas refinery worker controls
@@ -4179,24 +4223,31 @@ function getPanelButtons() {
     const bdef = BUILDING_DEFS[btype];
     const builtGroup = group.filter(b => b.built);
     const buildingGroup = group.filter(b => !b.built);
-
-    y += 10; // header
-    if (buildingGroup.length > 0) y += 14; // building progress
-    if (builtGroup.length === 0) continue;
-
-    // Combined queue
-    const totalQueued = builtGroup.reduce((sum, b) => sum + (b.queue ? b.queue.length : 0), 0);
-    if (totalQueued > 0) y += 14;
-
-    // ONE set of unit buttons (no btn.building — uses getBuildingForUnit)
+    const collapsed = panelCollapsed.has(btype);
     const producible = (bdef.unlocks && bdef.unlocks.length > 0) ? bdef.unlocks : (btype === '_base' ? [WORKER_TYPE[playerFaction]] : []);
-    for (const utype of producible) {
-      if (y > VIEWPORT_H + 10) break;
-      buttons.push({ type: utype, x: px + 4, y, isBuilding: false });
-      y += BTN_H + 2;
+
+    // Header — tappable to toggle collapse
+    if (builtGroup.length > 0 && producible.length > 0) {
+      buttons.push({ type: '_toggle', x: px + 2, y: y - 1, w: PANEL_W - 4, h: 12, groupKey: btype });
+    }
+    y += 13; // header
+    if (buildingGroup.length > 0) y += 12; // building progress
+    if (builtGroup.length === 0) { y += 2; continue; }
+
+    if (!collapsed) {
+      // Combined queue
+      const totalQueued = builtGroup.reduce((sum, b) => sum + (b.queue ? b.queue.length : 0), 0);
+      if (totalQueued > 0) y += 14;
+
+      // Unit buttons
+      for (const utype of producible) {
+        if (y > VIEWPORT_H + 10) break;
+        buttons.push({ type: utype, x: px + 4, y, isBuilding: false });
+        y += BTN_H + 2;
+      }
     }
 
-    y += 8; // separator
+    y += 5; // separator
   }
 
   // Gas worker buttons
@@ -4251,6 +4302,11 @@ function handleInput(x, y) {
     const bh = btn.h || BTN_H;
     if (x >= btn.x && x <= btn.x + bw && y >= btn.y && y <= btn.y + bh) {
       if (btn.isStance) return;
+      if (btn.type === '_toggle') {
+        if (panelCollapsed.has(btn.groupKey)) panelCollapsed.delete(btn.groupKey);
+        else panelCollapsed.add(btn.groupKey);
+        return;
+      }
       if (btn.isGas) {
         if (btn.type === '_gas_plus' && btn.geyser.workers < 3) btn.geyser.workers++;
         if (btn.type === '_gas_minus' && btn.geyser.workers > 0) btn.geyser.workers--;
@@ -4523,19 +4579,8 @@ function gameLoop(timestamp) {
   const dt = Math.min(0.05, (timestamp - lastTime) / 1000);
   lastTime = timestamp;
 
-  try {
-    updateGame(dt);
-    render();
-  } catch (e) {
-    console.error('Game loop error:', e);
-    // Show error on screen for debugging
-    ctx.save();
-    ctx.scale(SCALE, SCALE);
-    ctx.fillStyle = 'red';
-    ctx.font = '10px monospace';
-    ctx.fillText('ERROR: ' + e.message, 10, VIEWPORT_H - 20);
-    ctx.restore();
-  }
+  updateGame(dt);
+  render();
 
   requestAnimationFrame(gameLoop);
 }
