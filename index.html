@@ -238,8 +238,16 @@ let forceFields = [];
 let stormZones = []; // { x, y, timer, dmg, team, tickTimer }
 let autoTurrets = []; // { x, y, hp, dmg, range, team, timer, atkTimer }
 let scanZones = []; // { x, y, radius, timer, team }
+let interceptors = []; // { x, y, owner (unit ref), team, hp, dmg, atkTimer, orbitAngle, target }
 let playerUpgrades = { attack: 0, armor: 0 };
 let enemyUpgrades = { attack: 0, armor: 0 };
+let playerUnitUpgrades = { combatShield: false, concussiveShells: false, metabolicBoost: false };
+let enemyUnitUpgrades = { combatShield: false, concussiveShells: false, metabolicBoost: false };
+const UNIT_UPGRADE_DEFS = {
+  combatShield: { name: 'Combat Shield', desc: 'Marine +10 HP', cost: 100, gasCost: 100, time: 15 },
+  concussiveShells: { name: 'Conc. Shells', desc: 'Marauder slow', cost: 50, gasCost: 50, time: 10 },
+  metabolicBoost: { name: 'Met. Boost', desc: 'Zergling +40% spd', cost: 100, gasCost: 100, time: 15 },
+};
 let creepZones = []; // { x, y, radius, team } - Zerg creep areas
 
 // ---- Fog of War ----
@@ -588,9 +596,9 @@ const BUILDING_DEFS = {
   evolutionchamber:  { faction:'zerg', cost:75, buildTime:10, name:'Evo Chamber', unlocks:[], r:16, isUpgrade:true },
   // TERRAN
   bunker:    { faction:'terran', cost:100, buildTime:6, name:'Bunker', unlocks:[], r:16, isDefense:true, defenseHp:400, defenseDmg:0, defenseRange:140, defenseAtkSpeed:0.8, bunkerGarrison:true, maxGarrison:4 },
-  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper'], r:18 },
-  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','ghost','thor'], requires:'barracks', r:18 },
-  starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','raven','battlecruiser'], requires:'factory', r:18 },
+  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper'], r:18, canAddon:true, reactorUnits:['marine','reaper'], techlabUnits:['marauder'], unitUpgrades:['combatShield','concussiveShells'] },
+  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','ghost','thor'], requires:'barracks', r:18, canAddon:true, reactorUnits:['hellion'], techlabUnits:['siegetank','ghost','thor'] },
+  starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','raven','battlecruiser'], requires:'factory', r:18, canAddon:true, reactorUnits:['viking','medivac'], techlabUnits:['banshee','raven','battlecruiser'] },
   // PROTOSS
   photoncannon: { faction:'protoss', cost:150, buildTime:6, name:'Cannon', unlocks:[], r:14, isDefense:true, defenseHp:300, defenseDmg:20, defenseRange:140, defenseAtkSpeed:0.9 },
   gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','sentry'], r:18 },
@@ -598,7 +606,7 @@ const BUILDING_DEFS = {
   fleetbeacon: { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Fleet Beacon', unlocks:['phoenix','voidray','carrier'], requires:'robo', r:18 },
   // ZERG
   spinecrawler: { faction:'zerg', cost:100, buildTime:6, name:'Spine', unlocks:[], r:14, isDefense:true, defenseHp:300, defenseDmg:30, defenseRange:120, defenseAtkSpeed:1.2 },
-  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawning Pool', unlocks:['zergling','roach','baneling'], r:18 },
+  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawning Pool', unlocks:['zergling','roach','baneling'], r:18, unitUpgrades:['metabolicBoost'] },
   den:       { faction:'zerg', cost:100, gasCost:100, buildTime:12, name:'Hydralisk Den', unlocks:['hydralisk','ultralisk','infestor','overseer'], requires:'pool', r:18 },
   spire:     { faction:'zerg', cost:200, gasCost:200, buildTime:10, name:'Spire', unlocks:['mutalisk','corruptor','broodlord'], requires:'den', r:18 },
 };
@@ -624,7 +632,6 @@ const UNIT_DEFS = {
   marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:195, dmg:31, speed:1.3, range:120, atkSpeed:0.8, count:1, r:8,  color:'#4488ff', name:'Marine', buildTime:6 },
   marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:450, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:1, r:10, color:'#336699', name:'Marauder', buildTime:7 },
   reaper:       { faction:'terran', cost:50,  gasCost:50,  supply:1, hp:160, dmg:22, speed:2.0, range:80,  atkSpeed:0.6, count:1, r:7,  color:'#66aaff', name:'Reaper', buildTime:6 },
-  medic:        { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:1, r:8,  color:'#88ccff', name:'Medic', healer:true, healAmt:40, buildTime:6 },
   siegetank:    { faction:'terran', cost:150, gasCost:125, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:11 },
   hellion:      { faction:'terran', cost:100, gasCost:0,   supply:2, hp:200, dmg:35, speed:1.6, range:80,  atkSpeed:0.8, count:1, r:9,  color:'#ff8844', name:'Hellion', splash:20, buildTime:7 },
   ghost:        { faction:'terran', cost:150, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost', buildTime:10 },
@@ -645,7 +652,7 @@ const UNIT_DEFS = {
   probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3, buildTime:8, shield:true, shieldAmt:20 },
   phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:250, dmg:35, speed:1.6, range:110, atkSpeed:0.8, count:1, r:9,  color:'#eebb22', name:'Phoenix', buildTime:8, isAir:true, shield:true, shieldAmt:60 },
   voidray:      { faction:'protoss', cost:250, gasCost:150, supply:4, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, color:'#ffdd44', name:'Void Ray', buildTime:12, isAir:true, shield:true, shieldAmt:150 },
-  carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:21, isAir:true, shield:true, shieldAmt:150 },
+  carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:0, speed:0.7, range:150, atkSpeed:0, count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:21, isAir:true, shield:true, shieldAmt:150, interceptorCarrier:true, maxInterceptors:8 },
   darktemplar:  { faction:'protoss', cost:125, gasCost:125, supply:2, hp:280, dmg:95, speed:1.2, range:20,  atkSpeed:0.9, count:1, r:9,  color:'#886600', name:'Dark Templar', buildTime:12, cloaked:true, shield:true, shieldAmt:80 },
   observer:     { faction:'protoss', cost:25,  gasCost:75,  supply:1, hp:60,  dmg:0,  speed:1.5, range:0,   atkSpeed:0,   count:1, r:5,  color:'#999966', name:'Observer', buildTime:8, isAir:true, cloaked:true, detector:true, detectionRange:150, shield:true, shieldAmt:20 },
   // ZERG — SC2 costs
@@ -841,7 +848,13 @@ function spawnUnit(defName, x, y, team) {
       detectionRange: def.detectionRange || 0,
       despawnTimer: def.despawnTimer || 0,
       supply: def.supply || 1,
+      slowTimer: 0,
     });
+    // Apply unit-specific upgrades
+    const u = units[units.length - 1];
+    const upg = team === 'player' ? playerUnitUpgrades : enemyUnitUpgrades;
+    if (defName === 'marine' && upg.combatShield) { u.hp += 10; u.maxHp += 10; }
+    if (defName === 'zergling' && upg.metabolicBoost) { u.speed *= 1.4; }
   }
   return units[units.length - 1];
 }
@@ -981,8 +994,11 @@ function startGame() {
   stormZones = [];
   autoTurrets = [];
   scanZones = [];
+  interceptors = [];
   playerUpgrades = { attack: 0, armor: 0 };
   enemyUpgrades = { attack: 0, armor: 0 };
+  playerUnitUpgrades = { combatShield: false, concussiveShells: false, metabolicBoost: false };
+  enemyUnitUpgrades = { combatShield: false, concussiveShells: false, metabolicBoost: false };
   creepZones = [];
   initFog();
   // Each side gets an implicit "base" building
@@ -1566,7 +1582,8 @@ function updateAllBuildingQueues(buildings, team, dt) {
     if (!b.queue || b.queue.length === 0) continue;
     if (!b.built) continue; // can't produce until built
     const item = b.queue[0];
-    const speed = b.chronoTimer > 0 ? 1.5 : 1;
+    let speed = b.chronoTimer > 0 ? 1.5 : 1;
+    if (b.addon === 'reactor') speed *= 2; // Reactor doubles production speed
     item.timeLeft -= dt * speed;
     if (item.timeLeft <= 0) {
       b.queue.shift();
@@ -1579,6 +1596,21 @@ function updateAllBuildingQueues(buildings, team, dt) {
       if (item.type === 'upgrade_armor') {
         if (team === 'player') playerUpgrades.armor = Math.min(3, playerUpgrades.armor + 1);
         else enemyUpgrades.armor = Math.min(3, enemyUpgrades.armor + 1);
+        continue;
+      }
+      if (item.type === 'upgrade_combatShield') {
+        const upg = team === 'player' ? playerUnitUpgrades : enemyUnitUpgrades;
+        upg.combatShield = true;
+        // Apply to all existing marines
+        for (const u of units) { if (!u.dead && u.team === team && u.type === 'marine') { u.maxHp += 10; u.hp += 10; } }
+        continue;
+      }
+      if (item.type === 'upgrade_concussiveShells') {
+        (team === 'player' ? playerUnitUpgrades : enemyUnitUpgrades).concussiveShells = true;
+        continue;
+      }
+      if (item.type === 'upgrade_metabolicBoost') {
+        (team === 'player' ? playerUnitUpgrades : enemyUnitUpgrades).metabolicBoost = true;
         continue;
       }
       // Spawn unit near the building
@@ -1948,6 +1980,46 @@ function updateGame(dt) {
   }
   autoTurrets = autoTurrets.filter(t => t.timer > 0 && t.hp > 0);
 
+  // Update interceptors (Carrier)
+  for (const i of interceptors) {
+    if (i.hp <= 0) continue;
+    // If owner is dead, interceptor dies
+    if (i.owner.dead) { i.hp = 0; continue; }
+    // Find target
+    let target = null, bestD = Infinity;
+    for (const u of units) {
+      if (u.dead || u.team === i.team) continue;
+      if (u.cloaked && !isDetected(u, i.team)) continue;
+      const d = dist(i, u);
+      if (d < 150 && d < bestD) { bestD = d; target = u; }
+    }
+    if (target && bestD <= i.range) {
+      // Attack
+      i.atkTimer -= dt;
+      if (i.atkTimer <= 0) {
+        dealDamage(target, i.dmg);
+        spawnParticle(target.x, target.y, '#ffee44', 3);
+        i.atkTimer = i.atkSpeed;
+      }
+      // Move toward target
+      const ang = Math.atan2(target.y - i.y, target.x - i.x);
+      i.x += Math.cos(ang) * i.speed * 50 * dt;
+      i.y += Math.sin(ang) * i.speed * 50 * dt;
+    } else if (target) {
+      // Move toward target
+      const ang = Math.atan2(target.y - i.y, target.x - i.x);
+      i.x += Math.cos(ang) * i.speed * 50 * dt;
+      i.y += Math.sin(ang) * i.speed * 50 * dt;
+    } else {
+      // Orbit owner
+      i.orbitAngle += i.orbitSpeed * dt;
+      const orbR = 20;
+      i.x = i.owner.x + Math.cos(i.orbitAngle) * orbR;
+      i.y = i.owner.y + Math.sin(i.orbitAngle) * orbR;
+    }
+  }
+  interceptors = interceptors.filter(i => i.hp > 0);
+
   // Update scan zones
   for (const sz of scanZones) sz.timer -= dt;
   scanZones = scanZones.filter(sz => sz.timer > 0);
@@ -2003,6 +2075,8 @@ function updateGame(dt) {
     // Siege tank: can't move in siege mode
     let effectiveSpeed = unit.siegeMode ? 0 : unit.speed;
     if (unit.fungalRootTimer > 0) effectiveSpeed = 0;
+    // Concussive Shells slow
+    if (unit.slowTimer > 0) { unit.slowTimer -= dt; effectiveSpeed *= 0.7; }
     // Stim Pack: Marines auto-stim when engaging
     if (unit.type === 'marine' && target && unit.stimTimer <= 0 && unit.hp > 15) {
       unit.stimTimer = 5;
@@ -2105,8 +2179,32 @@ function updateGame(dt) {
     if (unit.guardianShieldTimer > 0) unit.guardianShieldTimer -= dt;
     if (unit.guardianShieldActive > 0) unit.guardianShieldActive -= dt;
     // Skip normal attack for spell casters
-    if (unit.type === 'hightemplar' || unit.type === 'infestor' || unit.type === 'raven' || unit.type === 'observer' || unit.type === 'overseer') {
+    if (unit.type === 'hightemplar' || unit.type === 'infestor' || unit.type === 'raven' || unit.type === 'observer' || unit.type === 'overseer' || unit.type === 'carrier') {
       // These units don't auto-attack — move toward target if too far
+      // Carrier: spawn/maintain interceptors when enemies nearby
+      if (unit.type === 'carrier' && target) {
+        if (!unit.interceptorCount) unit.interceptorCount = 0;
+        if (!unit.interceptorTimer) unit.interceptorTimer = 0;
+        unit.interceptorTimer -= dt;
+        const maxInt = UNIT_DEFS.carrier.maxInterceptors;
+        // Count living interceptors for this carrier
+        const myInterceptors = interceptors.filter(i => i.owner === unit && i.hp > 0);
+        unit.interceptorCount = myInterceptors.length;
+        if (unit.interceptorCount < maxInt && unit.interceptorTimer <= 0) {
+          // Spawn interceptor
+          const angle = Math.random() * Math.PI * 2;
+          interceptors.push({
+            x: unit.x + Math.cos(angle) * 15,
+            y: unit.y + Math.sin(angle) * 15,
+            owner: unit, team: unit.team,
+            hp: 40, maxHp: 40, dmg: 10, range: 50,
+            atkTimer: 0, atkSpeed: 0.6,
+            orbitAngle: angle, orbitSpeed: 2.5,
+            speed: 4, r: 3
+          });
+          unit.interceptorTimer = 0.8; // spawn interval
+        }
+      }
       if (target && effectiveSpeed > 0) {
         const d = dist(unit, target);
         if (d > effectiveRange) {
@@ -2149,7 +2247,7 @@ function updateGame(dt) {
             unit.dead = true;
           } else {
             if (effectiveRange > 40) {
-              projectiles.push({ x: unit.x, y: unit.y, tx: target.x, ty: target.y, dmg: effectiveDmg, team: unit.team, speed: 250, color: unit.color, splash: effectiveSplash, target });
+              projectiles.push({ x: unit.x, y: unit.y, tx: target.x, ty: target.y, dmg: effectiveDmg, team: unit.team, speed: 250, color: unit.color, splash: effectiveSplash, target, sourceType: unit.type });
               // Mutalisk bounce: hit 2 additional nearby targets with reduced damage
               if (unit.type === 'mutalisk') {
                 let bounceTarget = target;
@@ -2291,6 +2389,11 @@ function updateGame(dt) {
         dealSplash(p.tx, p.ty, p.splash, p.dmg, p.team);
       } else if (p.target) {
         dealDamage(p.target, p.dmg);
+        // Concussive Shells: Marauder slows target
+        if (p.sourceType === 'marauder' && p.target.slowTimer !== undefined) {
+          const upg = p.team === 'player' ? playerUnitUpgrades : enemyUnitUpgrades;
+          if (upg.concussiveShells) p.target.slowTimer = 2;
+        }
       }
       spawnParticle(p.tx, p.ty, p.color, 6);
       p.dead = true;
@@ -2716,7 +2819,11 @@ function updateEnemyAI(dt) {
     // Fill up to maxQueue slots per building per tick
     while (slot.queue.length < P.maxQueue) {
       const bdef = BUILDING_DEFS[slot.type];
-      const slotUnits = combatUnits.filter(u => bdef.unlocks.includes(u) && canAffordUnit(u, 'enemy'));
+      let slotUnits = combatUnits.filter(u => bdef.unlocks.includes(u) && canAffordUnit(u, 'enemy'));
+      // Filter by addon for Terran buildings: no addon or reactor = basic units only
+      if (bdef.canAddon && slot.addon !== 'techlab') {
+        slotUnits = slotUnits.filter(u => bdef.reactorUnits && bdef.reactorUnits.includes(u));
+      }
       if (slotUnits.length === 0) break;
 
       // Weighted random pick (difficulty affects weight intelligence)
@@ -2769,6 +2876,25 @@ function updateEnemyAI(dt) {
     }
   }
 
+  // ---- AI: Research unit-specific upgrades ----
+  for (const b of enemyBuildings) {
+    if (!b.built) continue;
+    const bdef = BUILDING_DEFS[b.type];
+    if (!bdef || !bdef.unitUpgrades) continue;
+    if (b.queue && b.queue.length > 0) continue;
+    for (const upgKey of bdef.unitUpgrades) {
+      if (enemyUnitUpgrades[upgKey]) continue;
+      const ud = UNIT_UPGRADE_DEFS[upgKey];
+      if (enemyMinerals >= ud.cost && enemyGas >= ud.gasCost) {
+        enemyMinerals -= ud.cost;
+        enemyGas -= ud.gasCost;
+        if (!b.queue) b.queue = [];
+        b.queue.push({ type: 'upgrade_' + upgKey, timeLeft: ud.time, totalTime: ud.time });
+        break;
+      }
+    }
+  }
+
   // ---- AI: Upgrade to Orbital Command (Terran) ----
   const enemyBase = enemyBuildings.find(b => b.type === '_base');
   if (enemyBase && enemyFaction === 'terran' && !enemyBase.isOrbital && enemyMinerals >= 150 && gameTime > 30) {
@@ -2777,6 +2903,25 @@ function updateEnemyAI(dt) {
     enemyBase.energy = 50;
     enemyBase.maxEnergy = 200;
   }
+  // ---- AI: Build addons for Terran buildings ----
+  if (enemyFaction === 'terran') {
+    for (const b of enemyBuildings) {
+      if (!b.built || b.addon) continue;
+      const bdef = BUILDING_DEFS[b.type];
+      if (!bdef || !bdef.canAddon) continue;
+      if (enemyMinerals >= 50 && enemyGas >= 50) {
+        // AI picks Tech Lab 60% of the time for more unit variety
+        if (Math.random() < 0.6) {
+          b.addon = 'techlab';
+          enemyMinerals -= 50; enemyGas -= 25;
+        } else {
+          b.addon = 'reactor';
+          enemyMinerals -= 50; enemyGas -= 50;
+        }
+      }
+    }
+  }
+
   // ---- AI: Use macro abilities (energy-based) ----
   if (enemyBase) {
     const energyCosts = { terran: 50, protoss: 25, zerg: 25 };
@@ -2918,6 +3063,25 @@ function render() {
     ctx.strokeStyle = `rgba(255, 255, 100, ${alpha * 0.5})`;
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(sz.x, sz.y, sz.radius, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // Interceptors (Carrier)
+  for (const i of interceptors) {
+    if (i.hp <= 0) continue;
+    if (!isVisible(i.y)) continue;
+    if (i.team === 'enemy' && !isFogVisible(i.x, i.y)) continue;
+    const ic = i.team === 'player' ? '#ffee44' : '#ff6644';
+    ctx.fillStyle = ic;
+    ctx.beginPath(); ctx.arc(i.x, i.y, 3, 0, Math.PI * 2); ctx.fill();
+    // Small trail effect
+    ctx.strokeStyle = ic;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.moveTo(i.x, i.y);
+    ctx.lineTo(i.x - Math.cos(i.orbitAngle) * 5, i.y - Math.sin(i.orbitAngle) * 5);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   // Units
@@ -3235,7 +3399,7 @@ function drawSC2Unit(type, cx, cy, r, dir, color, team, anim) {
   switch(type) {
     case 'marine': drawMarine(cx, cy, r, dir, color, anim); break;
     case 'marauder': drawMarauder(cx, cy, r, dir, color, anim); break;
-    case 'medic': drawMedicUnit(cx, cy, r, dir, color, anim); break;
+    // medic removed (not in WoL multiplayer)
     case 'siegetank': drawSiegeTank(cx, cy, r, dir, color, anim); break;
     case 'ghost': drawGhost(cx, cy, r, dir, color, anim); break;
     case 'scv': drawSCV(cx, cy, r, dir, color, anim); break;
@@ -3353,40 +3517,6 @@ function drawMarauder(cx, cy, r, dir, color, anim) {
   // Visor (red)
   ctx.fillStyle = '#ff3300';
   ctx.fillRect(cx - s*4, cy - s*3, s*8, s*2);
-}
-
-function drawMedicUnit(cx, cy, r, dir, color, anim) {
-  const s = r / 8;
-  // Legs
-  ctx.fillStyle = '#334455';
-  ctx.fillRect(cx - s*2.5, cy + s*3*dir, s*2, s*5*dir);
-  ctx.fillRect(cx + s*0.5, cy + s*3*dir, s*2, s*5*dir);
-  // Body (slimmer than marine)
-  ctx.fillStyle = '#ccddee';
-  roundRect(ctx, cx - s*4, cy - s*4, s*8, s*8, s*2, true, false);
-  // White armor with team accent
-  ctx.fillStyle = '#eef4ff';
-  roundRect(ctx, cx - s*3, cy - s*3, s*6, s*6, s*1.5, true, false);
-  // Red cross
-  ctx.fillStyle = '#ff2222';
-  ctx.fillRect(cx - s*0.7, cy - s*2.5, s*1.4, s*5);
-  ctx.fillRect(cx - s*2.5, cy - s*0.7, s*5, s*1.4);
-  // Medical backpack
-  ctx.fillStyle = '#99aabb';
-  roundRect(ctx, cx - s*2, cy + s*2*dir, s*4, s*3*dir, s*1, true, false);
-  // Healing device arm
-  ctx.strokeStyle = '#66ffaa';
-  ctx.lineWidth = s*1;
-  ctx.beginPath();
-  ctx.moveTo(cx + s*4, cy);
-  ctx.lineTo(cx + s*7, cy - s*4*dir);
-  ctx.stroke();
-  // Healing tip glow
-  const glowR = s*2 + Math.sin(anim*3)*s*0.5;
-  ctx.fillStyle = 'rgba(100,255,150,0.5)';
-  ctx.beginPath(); ctx.arc(cx + s*7, cy - s*4*dir, glowR, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle = '#66ff99';
-  ctx.beginPath(); ctx.arc(cx + s*7, cy - s*4*dir, s*1, 0, Math.PI*2); ctx.fill();
 }
 
 function drawSiegeTank(cx, cy, r, dir, color, anim) {
@@ -5076,6 +5206,21 @@ function drawProductionPanel() {
       // Collapse arrow
       const arrow = (builtGroup.length > 0 && producible.length > 0) ? (collapsed ? '\u25B6 ' : '\u25BC ') : '';
       ctx.fillText(arrow + bname + countStr, px + 6, y + 8);
+      // Show addon indicator for Terran buildings
+      if (bdef.canAddon && builtGroup.length > 0) {
+        const addon = builtGroup[0].addon;
+        if (addon === 'reactor') {
+          ctx.fillStyle = '#66ff66';
+          ctx.font = '5px monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText('R', px + PANEL_W - 20, y + 8);
+        } else if (addon === 'techlab') {
+          ctx.fillStyle = '#cc88ff';
+          ctx.font = '5px monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText('TL', px + PANEL_W - 20, y + 8);
+        }
+      }
       // Queue count on right side
       const totalQ = builtGroup.reduce((s, b) => s + (b.queue ? b.queue.length : 0), 0);
       if (totalQ > 0) {
@@ -5132,8 +5277,54 @@ function drawProductionPanel() {
         y += 14;
       }
 
-      // Unit buttons
-      for (const utype of producible) {
+      // Addon choice buttons for Terran buildings that need one
+      const needsAddon = bdef.canAddon && builtGroup.some(b => !b.addon);
+      if (needsAddon) {
+        if (y > -BTN_H - 5 && y < VIEWPORT_H) {
+          const reactorAfford = playerMinerals >= 50 && playerGas >= 50;
+          ctx.fillStyle = reactorAfford ? 'rgba(20,50,20,0.9)' : 'rgba(20,20,40,0.6)';
+          ctx.fillRect(px + 4, y, BTN_W, 20);
+          ctx.strokeStyle = reactorAfford ? '#66ff66' : '#444';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px + 4, y, BTN_W, 20);
+          ctx.fillStyle = reactorAfford ? '#66ff66' : '#666';
+          ctx.font = 'bold 7px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('REACTOR 50/50', px + PANEL_W/2, y + 9);
+          ctx.fillStyle = '#888';
+          ctx.font = '5px monospace';
+          ctx.fillText('2x speed, basic', px + PANEL_W/2, y + 17);
+        }
+        y += 23;
+        if (y > -BTN_H - 5 && y < VIEWPORT_H) {
+          const tlAfford = playerMinerals >= 50 && playerGas >= 25;
+          ctx.fillStyle = tlAfford ? 'rgba(40,20,50,0.9)' : 'rgba(20,20,40,0.6)';
+          ctx.fillRect(px + 4, y, BTN_W, 20);
+          ctx.strokeStyle = tlAfford ? '#cc88ff' : '#444';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px + 4, y, BTN_W, 20);
+          ctx.fillStyle = tlAfford ? '#cc88ff' : '#666';
+          ctx.font = 'bold 7px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('TECH LAB 50/25', px + PANEL_W/2, y + 9);
+          ctx.fillStyle = '#888';
+          ctx.font = '5px monospace';
+          ctx.fillText('all units', px + PANEL_W/2, y + 17);
+        }
+        y += 23;
+      }
+
+      // Unit buttons - filter by addon for Terran buildings
+      let filteredProducible = producible;
+      if (bdef.canAddon) {
+        const anyAddon = builtGroup.find(b => b.addon);
+        if (!anyAddon || anyAddon.addon === 'reactor') {
+          // No addon or Reactor: only basic units
+          filteredProducible = producible.filter(u => bdef.reactorUnits && bdef.reactorUnits.includes(u));
+        }
+        // techlab: show all units
+      }
+      for (const utype of filteredProducible) {
         if (y > VIEWPORT_H + 10) break;
         if (y > -BTN_H - 5) {
           const def = UNIT_DEFS[utype];
@@ -5167,6 +5358,37 @@ function drawProductionPanel() {
             ctx.fillStyle = '#88ccff';
             ctx.font = '6px monospace';
             ctx.fillText(cost.m + '/' + cost.g, px + 8, y + 20);
+          }
+          y += BTN_H + 2;
+        }
+      }
+
+      // Unit-specific upgrade buttons
+      if (bdef.unitUpgrades) {
+        for (const upgKey of bdef.unitUpgrades) {
+          if (playerUnitUpgrades[upgKey]) continue; // already researched
+          const ud = UNIT_UPGRADE_DEFS[upgKey];
+          if (!ud) continue;
+          if (y > VIEWPORT_H + 10) break;
+          const affordable = playerMinerals >= ud.cost && playerGas >= ud.gasCost;
+          const researching = builtGroup.some(b => b.queue && b.queue.some(q => q.type === 'upgrade_' + upgKey));
+          if (y > -BTN_H - 5) {
+            ctx.fillStyle = researching ? 'rgba(255,170,0,0.3)' : affordable ? 'rgba(20,50,40,0.9)' : 'rgba(20,20,40,0.6)';
+            ctx.fillRect(px + 4, y, BTN_W, BTN_H - 4);
+            ctx.strokeStyle = affordable ? '#44ddaa' : '#444';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px + 4, y, BTN_W, BTN_H - 4);
+            ctx.fillStyle = affordable ? '#fff' : '#666';
+            ctx.font = 'bold 6px monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(ud.name, px + 8, y + 10);
+            ctx.fillStyle = '#88ccff';
+            ctx.font = '6px monospace';
+            ctx.fillText(ud.cost + '/' + ud.gasCost, px + 8, y + 20);
+            ctx.fillStyle = '#888';
+            ctx.font = '5px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(ud.desc, px + BTN_W, y + 26);
           }
           y += BTN_H + 2;
         }
@@ -5527,8 +5749,24 @@ function getPanelButtons() {
       const totalQueued = builtGroup.reduce((sum, b) => sum + (b.queue ? b.queue.length : 0), 0);
       if (totalQueued > 0) y += 14;
 
-      // Unit buttons
-      for (const utype of producible) {
+      // Addon choice buttons for Terran buildings
+      const needsAddon = bdef.canAddon && builtGroup.some(b => !b.addon);
+      if (needsAddon) {
+        buttons.push({ type: '_addon_reactor', x: px + 4, y, w: BTN_W, h: 20, builtGroup, btype });
+        y += 23;
+        buttons.push({ type: '_addon_techlab', x: px + 4, y, w: BTN_W, h: 20, builtGroup, btype });
+        y += 23;
+      }
+
+      // Unit buttons - filter by addon
+      let filteredProducible = producible;
+      if (bdef.canAddon) {
+        const anyAddon = builtGroup.find(b => b.addon);
+        if (!anyAddon || anyAddon.addon === 'reactor') {
+          filteredProducible = producible.filter(u => bdef.reactorUnits && bdef.reactorUnits.includes(u));
+        }
+      }
+      for (const utype of filteredProducible) {
         if (y > VIEWPORT_H + 10) break;
         buttons.push({ type: utype, x: px + 4, y, isBuilding: false });
         y += BTN_H + 2;
@@ -5540,6 +5778,15 @@ function getPanelButtons() {
           const level = playerUpgrades[upgType];
           if (level >= 3) continue;
           buttons.push({ type: '_upgrade_' + upgType, x: px + 4, y, w: BTN_W, h: BTN_H - 4, upgType, level, builtGroup });
+          y += BTN_H + 2;
+        }
+      }
+
+      // Unit-specific upgrade buttons
+      if (bdef.unitUpgrades) {
+        for (const upgKey of bdef.unitUpgrades) {
+          if (playerUnitUpgrades[upgKey]) continue;
+          buttons.push({ type: '_unitupg_' + upgKey, x: px + 4, y, w: BTN_W, h: BTN_H - 4, upgKey, builtGroup });
           y += BTN_H + 2;
         }
       }
@@ -5614,6 +5861,41 @@ function handleInput(x, y) {
       if (btn.isGas) {
         if (btn.type === '_gas_plus' && btn.geyser.workers < 3) btn.geyser.workers++;
         if (btn.type === '_gas_minus' && btn.geyser.workers > 0) btn.geyser.workers--;
+        return;
+      }
+      // Addon choice (Reactor/Tech Lab)
+      if (btn.type === '_addon_reactor') {
+        if (playerMinerals < 50 || playerGas < 50) return;
+        const target = btn.builtGroup.find(b => !b.addon);
+        if (!target) return;
+        playerMinerals -= 50;
+        playerGas -= 50;
+        target.addon = 'reactor';
+        spawnParticle(target.x, target.y, '#66ff66', 10);
+        return;
+      }
+      if (btn.type === '_addon_techlab') {
+        if (playerMinerals < 50 || playerGas < 25) return;
+        const target = btn.builtGroup.find(b => !b.addon);
+        if (!target) return;
+        playerMinerals -= 50;
+        playerGas -= 25;
+        target.addon = 'techlab';
+        spawnParticle(target.x, target.y, '#cc88ff', 10);
+        return;
+      }
+      // Unit-specific upgrade research
+      if (btn.type && btn.type.startsWith('_unitupg_')) {
+        const upgKey = btn.upgKey;
+        if (playerUnitUpgrades[upgKey]) return;
+        const ud = UNIT_UPGRADE_DEFS[upgKey];
+        if (!ud || playerMinerals < ud.cost || playerGas < ud.gasCost) return;
+        const bld = btn.builtGroup.find(b => !b.queue || b.queue.length === 0);
+        if (!bld) return;
+        playerMinerals -= ud.cost;
+        playerGas -= ud.gasCost;
+        if (!bld.queue) bld.queue = [];
+        bld.queue.push({ type: 'upgrade_' + upgKey, timeLeft: ud.time, totalTime: ud.time });
         return;
       }
       // Upgrade research
