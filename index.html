@@ -1500,7 +1500,7 @@ function updateGame(dt) {
       const d2 = dx * dx + dy * dy;
       if (d2 < minDist * minDist && d2 > 0.1) {
         const d = Math.sqrt(d2);
-        const pushStr = (minDist - d) * 0.4 * dt * 30;
+        const pushStr = (minDist - d) * 0.8 * dt * 30;
         const nx = dx / d * pushStr;
         const ny = dy / d * pushStr;
         // Only push if destination isn't blocked
@@ -1516,6 +1516,11 @@ function updateGame(dt) {
 
   // Projectiles
   for (const p of projectiles) {
+    // Track moving targets so projectiles don't fly to empty ground
+    if (p.target && !p.target.dead) {
+      p.tx = p.target.x;
+      p.ty = p.target.y;
+    }
     const angle = Math.atan2(p.ty - p.y, p.tx - p.x);
     p.x += Math.cos(angle) * p.speed * dt;
     p.y += Math.sin(angle) * p.speed * dt;
@@ -4410,6 +4415,11 @@ function handleInput(x, y) {
 
     // Defense building placement mode
     if (placingBuilding) {
+      // Only allow placement on player's half of the map
+      if (wy < GAME_H / 2 + 50 || wx < 30 || wx > ARENA_W - 30) {
+        placingBuilding = null;
+        return;
+      }
       const pb = placingBuilding;
       const gasCost = pb.bdef.gasCost || 0;
       if (pb.bdef.cost <= playerMinerals && playerGas >= gasCost) {
