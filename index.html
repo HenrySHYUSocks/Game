@@ -366,9 +366,9 @@ function drawObstacles() {
 }
 
 // Mineral patches: 8 per base, expansion patches behind base, third at river
-// Natural expansions sit BEHIND main bases (safe side)
-const PLAYER_EXP_Y = GAME_H - 120; // behind player base
-const ENEMY_EXP_Y = 120;            // behind enemy base
+// Natural expansions sit BEHIND main bases (safe side) — plenty of room
+const PLAYER_EXP_Y = GAME_H - 200; // behind player base
+const ENEMY_EXP_Y = 200;            // behind enemy base
 // Third (contested) expansion in side corridor near river
 const THIRD_EXP_Y = RIVER_Y;
 const THIRD_EXP_X = 70; // Left corridor
@@ -521,7 +521,7 @@ const UNIT_DEFS = {
   siegetank:    { faction:'terran', cost:150, gasCost:125, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#2255aa', name:'Siege Tank', splash:30, buildTime:11 },
   hellion:      { faction:'terran', cost:100, gasCost:0,   supply:2, hp:200, dmg:35, speed:1.6, range:80,  atkSpeed:0.8, count:2, r:9,  color:'#ff8844', name:'Hellion', splash:20, buildTime:7 },
   ghost:        { faction:'terran', cost:150, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  color:'#aaccff', name:'Ghost', buildTime:10 },
-  scv:          { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3, buildTime:4 },
+  scv:          { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#88aadd', name:'SCV', worker:true, mineRate:0.3, buildTime:8 },
   viking:       { faction:'terran', cost:150, gasCost:75,  supply:2, hp:280, dmg:40, speed:1.3, range:120, atkSpeed:0.9, count:1, r:10, color:'#5599ee', name:'Viking', buildTime:10, isAir:true },
   medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, color:'#aaddff', name:'Medivac', healer:true, healAmt:30, buildTime:10, isAir:true },
   banshee:      { faction:'terran', cost:150, gasCost:100, supply:3, hp:280, dmg:55, speed:1.2, range:110, atkSpeed:1.0, count:1, r:10, color:'#3355cc', name:'Banshee', buildTime:11, isAir:true },
@@ -533,7 +533,7 @@ const UNIT_DEFS = {
   hightemplar:  { faction:'protoss', cost:50,  gasCost:150, supply:2, hp:280, dmg:180,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  color:'#ffff00', name:'High Templar', splash:55, buildTime:13 },
   immortal:     { faction:'protoss', cost:275, gasCost:100, supply:4, hp:650, dmg:85, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, color:'#ddaa00', name:'Immortal', buildTime:13 },
   colossus:     { faction:'protoss', cost:300, gasCost:200, supply:6, hp:450, dmg:70, speed:0.7, range:150, atkSpeed:1.2, count:1, r:14, color:'#eecc33', name:'Colossus', splash:35, buildTime:18 },
-  probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3, buildTime:4 },
+  probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#ddcc44', name:'Probe', worker:true, mineRate:0.3, buildTime:8 },
   phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:250, dmg:35, speed:1.6, range:110, atkSpeed:0.8, count:1, r:9,  color:'#eebb22', name:'Phoenix', buildTime:8, isAir:true },
   voidray:      { faction:'protoss', cost:250, gasCost:150, supply:4, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, color:'#ffdd44', name:'Void Ray', buildTime:12, isAir:true },
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:21, isAir:true },
@@ -543,7 +543,7 @@ const UNIT_DEFS = {
   hydralisk:    { faction:'zerg', cost:100, gasCost:50,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  color:'#ff6666', name:'Hydralisk', buildTime:8 },
   baneling:     { faction:'zerg', cost:25,  gasCost:25,  supply:1, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:4, r:7,  color:'#44ff44', name:'Baneling', suicide:true, splash:35, buildTime:5 },
   ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, color:'#cc2222', name:'Ultralisk', splash:25, buildTime:13 },
-  drone:        { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3, buildTime:4 },
+  drone:        { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  color:'#dd6644', name:'Drone', worker:true, mineRate:0.3, buildTime:8 },
   mutalisk:     { faction:'zerg', cost:100, gasCost:100, supply:2, hp:200, dmg:30, speed:1.8, range:90,  atkSpeed:0.7, count:1, r:9,  color:'#ee5555', name:'Mutalisk', splash:15, buildTime:8, isAir:true },
   corruptor:    { faction:'zerg', cost:150, gasCost:100, supply:2, hp:350, dmg:50, speed:1.1, range:120, atkSpeed:1.0, count:1, r:11, color:'#cc3333', name:'Corruptor', buildTime:10, isAir:true },
   broodlord:    { faction:'zerg', cost:150, gasCost:150, supply:4, hp:500, dmg:60, speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, color:'#aa2222', name:'Brood Lord', splash:25, buildTime:8, isAir:true },
@@ -794,13 +794,24 @@ function countWorkersOnPatch(patch, team) {
   return count;
 }
 
-function findNearestPatch(unit) {
-  const team = unit.team;
+// Get mineral patches belonging to a specific base location
+function getPatchesForBase(basePos, team) {
   const teamPatches = team === 'player' ? mineralPatches.player : mineralPatches.enemy;
   const expKey = team === 'player' ? 'playerExpansion' : 'enemyExpansion';
   const expPatches = hasExpansion(team) ? (mineralPatches[expKey] || []) : [];
   const thirdPatches = hasThirdExpansion(team) ? (mineralPatches.thirdExpansion || []) : [];
-  const patches = [...teamPatches, ...expPatches, ...thirdPatches];
+  const allPatches = [...teamPatches, ...expPatches, ...thirdPatches];
+  // Return patches within 250 units of the base (covers mineral line)
+  return allPatches.filter(p => {
+    const dx = p.x - basePos.x, dy = p.y - basePos.y;
+    return Math.sqrt(dx*dx + dy*dy) < 250;
+  });
+}
+
+function findNearestPatch(unit) {
+  const team = unit.team;
+  // Only search patches near this worker's assigned homeBase
+  const patches = unit.homeBase ? getPatchesForBase(unit.homeBase, team) : [];
 
   // Prefer patches with fewer workers: first pass < 2 workers, then < 3
   for (let maxWorkers = 2; maxWorkers <= 3; maxWorkers++) {
@@ -813,7 +824,7 @@ function findNearestPatch(unit) {
     }
     if (best) return best;
   }
-  // All saturated — just find nearest with minerals
+  // All local patches saturated — just find nearest local with minerals
   let best = null, bestD = Infinity;
   for (const p of patches) {
     if (p.minerals <= 0) continue;
@@ -862,10 +873,10 @@ function findTarget(unit) {
     if (d < bestDist && d < maxRange) { bestDist = d; best = t; }
   }
 
-  // Target enemy buildings when in range
+  // Target enemy buildings when in range (skip _base — handled by tower system above)
   const enemyBldgs = isPlayer ? enemyBuildings : playerBuildings;
   for (const b of enemyBldgs) {
-    if (b.hp <= 0) continue;
+    if (b.hp <= 0 || b.type === '_base') continue;
     if (!b.r) { const bdef = BUILDING_DEFS[b.type]; b.r = bdef ? bdef.r : 14; }
     const d = dist(unit, b);
     if (d < bestDist && d < maxRange) { bestDist = d; best = b; }
@@ -918,17 +929,21 @@ function autoRedistributeWorkers(team, newBase) {
   }
 }
 
-// Find nearest gas geyser with refinery that has a worker slot for this unit
+// Find nearest gas geyser with refinery that has a worker slot — only near this worker's homeBase
 function findAssignedGeyser(unit) {
   const team = unit.team;
   const geysers = getGasGeysers(team);
-  const buildings = team === 'player' ? playerBuildings : enemyBuildings;
   let best = null, bestD = Infinity;
   for (const g of geysers) {
     if (g.expansion && !hasExpansion(team)) continue;
     if (g.thirdExp && !hasThirdExpansion(team)) continue;
     if (!hasRefineryOnGeyser(g, team)) continue;
     if (g.workers <= 0) continue;
+    // Only consider geysers near this worker's homeBase
+    if (unit.homeBase) {
+      const dx = g.x - unit.homeBase.x, dy = g.y - unit.homeBase.y;
+      if (Math.sqrt(dx*dx + dy*dy) > 250) continue;
+    }
     // Count how many workers are already physically assigned to this geyser
     const assigned = units.filter(u => !u.dead && u.team === team && u.worker && u.assignedGeyser === g).length;
     if (assigned >= g.workers) continue;
@@ -961,8 +976,6 @@ function updateWorker(unit, dt) {
       break;
     }
     case 'idle': {
-      // Recalculate homeBase when idle
-      unit.homeBase = findNearestBase(unit);
       // Try gas first if there's an open slot
       const geyser = findAssignedGeyser(unit);
       if (geyser) {
@@ -988,7 +1001,6 @@ function updateWorker(unit, dt) {
       if (d < 12) {
         unit.miningState = 'mining';
         unit.miningTimer = MINE_TIME;
-        unit.homeBase = findNearestBase(unit); // recalc at mining location
       } else {
         const angle = Math.atan2(unit.assignedPatch.y - unit.y, unit.assignedPatch.x - unit.x);
         moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
@@ -1017,7 +1029,6 @@ function updateWorker(unit, dt) {
       if (d < 15) {
         unit.miningState = 'miningGas';
         unit.miningTimer = 2.5;
-        unit.homeBase = findNearestBase(unit); // recalc at gas location
       } else {
         const angle = Math.atan2(unit.assignedGeyser.y - unit.y, unit.assignedGeyser.x - unit.x);
         moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
