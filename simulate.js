@@ -116,13 +116,9 @@ class GameSim {
 
     this.towers = {
       player: {
-        left:  { x: LANE_X[0], y: GAME_H - 200, hp: 1200, maxHp: 1200, r: TOWER_R },
-        right: { x: LANE_X[1], y: GAME_H - 200, hp: 1200, maxHp: 1200, r: TOWER_R },
         base:  { x: ARENA_W / 2, y: GAME_H - 90,  hp: 2400, maxHp: 2400, r: BASE_R }
       },
       enemy: {
-        left:  { x: LANE_X[0], y: 200, hp: 1200, maxHp: 1200, r: TOWER_R },
-        right: { x: LANE_X[1], y: 200, hp: 1200, maxHp: 1200, r: TOWER_R },
         base:  { x: ARENA_W / 2, y: 90,  hp: 2400, maxHp: 2400, r: BASE_R }
       }
     };
@@ -335,7 +331,7 @@ class GameSim {
 
     if (stance !== 'defend') {
       const enemyTowers = isPlayer ? this.towers.enemy : this.towers.player;
-      for (const key of ['left', 'right', 'base']) {
+      for (const key of ['base']) {
         const t = enemyTowers[key];
         if (t.hp <= 0) continue;
         const d = this.dist(unit, t);
@@ -365,7 +361,7 @@ class GameSim {
       if (this.dist(u, { x, y }) <= radius) this.dealDamage(u, dmg);
     }
     const enemyTowers = attackerTeam === 'player' ? this.towers.enemy : this.towers.player;
-    for (const key of ['left', 'right', 'base']) {
+    for (const key of ['base']) {
       const t = enemyTowers[key];
       if (t.hp <= 0) continue;
       if (this.dist(t, { x, y }) <= radius + t.r) {
@@ -752,8 +748,8 @@ class GameSim {
     if (this.towers.enemy.base.hp <= 0) { this.result = 'player'; return true; }
     if (this.towers.player.base.hp <= 0) { this.result = 'enemy'; return true; }
     if (this.gameTime > 600) {
-      const pt = this.towers.player.left.hp + this.towers.player.right.hp + this.towers.player.base.hp;
-      const et = this.towers.enemy.left.hp + this.towers.enemy.right.hp + this.towers.enemy.base.hp;
+      const pt = this.towers.player.base.hp;
+      const et = this.towers.enemy.base.hp;
       this.result = pt > et ? 'player' : pt < et ? 'enemy' : 'draw';
       return true;
     }
