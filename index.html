@@ -369,6 +369,146 @@ function makeObstacles() {
   ];
 }
 
+// ---- Flow Field Pathfinding ----
+// Pre-compute direction grids so units know how to route around obstacles
+const FF_CELL = 20; // cell size in game pixels
+const FF_COLS = Math.ceil(ARENA_W / FF_CELL);
+const FF_ROWS = Math.ceil(GAME_H / FF_CELL);
+let flowFieldToEnemy = null; // flow field directing toward enemy base
+let flowFieldToPlayer = null; // flow field directing toward player base
+
+function cellBlocked(col, row) {
+  // Check if a flow field cell overlaps any obstacle
+  const cx = (col + 0.5) * FF_CELL;
+  const cy = (row + 0.5) * FF_CELL;
+  const half = FF_CELL * 0.4; // slightly smaller than cell to allow edge movement
+  for (const obs of obstacles) {
+    if (cx + half > obs.x && cx - half < obs.x + obs.w &&
+        cy + half > obs.y && cy - half < obs.y + obs.h) return true;
+  }
+  // Arena side walls
+  if (cx < 22 || cx > ARENA_W - 10) return true;
+  return false;
+}
+
+function buildFlowField(goalX, goalY) {
+  // BFS from goal cell to all reachable cells
+  const dirs = new Array(FF_ROWS * FF_COLS).fill(null); // {dx, dy} per cell
+  const dist = new Array(FF_ROWS * FF_COLS).fill(Infinity);
+  const goalCol = Math.floor(goalX / FF_CELL);
+  const goalRow = Math.floor(goalY / FF_CELL);
+  const idx = (r, c) => r * FF_COLS + c;
+
+  // BFS
+  const queue = [];
+  // Seed with goal cell and neighbors (wider goal area for smoother flow)
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const r = goalRow + dr, c = goalCol + dc;
+      if (r < 0 || r >= FF_ROWS || c < 0 || c >= FF_COLS) continue;
+      if (cellBlocked(c, r)) continue;
+      dist[idx(r, c)] = 0;
+      queue.push([r, c]);
+    }
+  }
+
+  let head = 0;
+  const neighbors = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+  while (head < queue.length) {
+    const [cr, cc] = queue[head++];
+    const curDist = dist[idx(cr, cc)];
+    for (const [dr, dc] of neighbors) {
+      const nr = cr + dr, nc = cc + dc;
+      if (nr < 0 || nr >= FF_ROWS || nc < 0 || nc >= FF_COLS) continue;
+      if (cellBlocked(nc, nr)) continue;
+      const newDist = curDist + (dr !== 0 && dc !== 0 ? 1.41 : 1);
+      if (newDist < dist[idx(nr, nc)]) {
+        dist[idx(nr, nc)] = newDist;
+        queue.push([nr, nc]);
+      }
+    }
+  }
+
+  // Compute direction vectors: each cell points toward its lowest-distance neighbor
+  for (let r = 0; r < FF_ROWS; r++) {
+    for (let c = 0; c < FF_COLS; c++) {
+      if (cellBlocked(c, r) || dist[idx(r, c)] === Infinity) continue;
+      let bestDist = dist[idx(r, c)];
+      let bestDx = 0, bestDy = 0;
+      for (const [dr, dc] of neighbors) {
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= FF_ROWS || nc < 0 || nc >= FF_COLS) continue;
+        if (dist[idx(nr, nc)] < bestDist) {
+          bestDist = dist[idx(nr, nc)];
+          bestDx = dc;
+          bestDy = dr;
+        }
+      }
+      if (bestDx !== 0 || bestDy !== 0) {
+        const len = Math.sqrt(bestDx * bestDx + bestDy * bestDy);
+        dirs[idx(r, c)] = { dx: bestDx / len, dy: bestDy / len };
+      }
+    }
+  }
+  return dirs;
+}
+
+function initFlowFields() {
+  flowFieldToEnemy = buildFlowField(ARENA_W / 2, ENEMY_BASE_Y);
+  flowFieldToPlayer = buildFlowField(ARENA_W / 2, PLAYER_BASE_Y);
+}
+
+// Get the flow field direction at a world position
+function getFlowDir(x, y, field) {
+  const c = Math.floor(x / FF_CELL);
+  const r = Math.floor(y / FF_CELL);
+  if (c < 0 || c >= FF_COLS || r < 0 || r >= FF_ROWS) return null;
+  return field[r * FF_COLS + c];
+}
+
+// Blend the direct-to-target direction with flow field for smart pathfinding
+function getSmartDirection(unit, targetX, targetY) {
+  const dx = targetX - unit.x;
+  const dy = targetY - unit.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1) return { dx: 0, dy: 0 };
+
+  // Direct direction to target
+  const directDx = dx / len;
+  const directDy = dy / len;
+
+  // If air unit or very close to target, just go direct
+  if (unit.isAir || len < 40) return { dx: directDx, dy: directDy };
+
+  // Check if direct path is clear (raycast a few steps ahead)
+  let pathClear = true;
+  const checkDist = Math.min(len, 60);
+  for (let step = 10; step <= checkDist; step += 10) {
+    if (posBlocked(unit.x + directDx * step, unit.y + directDy * step, unit.r)) {
+      pathClear = false;
+      break;
+    }
+  }
+
+  if (pathClear) return { dx: directDx, dy: directDy };
+
+  // Path blocked — use flow field
+  const isPlayer = unit.team === 'player';
+  // Pick the flow field that points toward the target's general area
+  const field = (targetY < unit.y) ? flowFieldToEnemy : flowFieldToPlayer;
+  const flowDir = getFlowDir(unit.x, unit.y, field);
+
+  if (flowDir) {
+    // Blend: 30% direct + 70% flow field (flow dominates near walls)
+    const blendDx = directDx * 0.3 + flowDir.dx * 0.7;
+    const blendDy = directDy * 0.3 + flowDir.dy * 0.7;
+    const bLen = Math.sqrt(blendDx * blendDx + blendDy * blendDy);
+    if (bLen > 0.01) return { dx: blendDx / bLen, dy: blendDy / bLen };
+  }
+
+  return { dx: directDx, dy: directDy };
+}
+
 function pointInObstacle(px, py, obs, unitR) {
   const r = unitR || 0;
   return px + r > obs.x && px - r < obs.x + obs.w &&
@@ -1043,6 +1183,7 @@ function startGame() {
   mineralPatches = makeMineralPatches();
   gasGeysers = makeGasGeysers();
   obstacles = makeObstacles();
+  initFlowFields();
   units = [];
   particles = [];
   projectiles = [];
@@ -2296,8 +2437,8 @@ function updateGame(dt) {
       if (target && effectiveSpeed > 0) {
         const d = dist(unit, target);
         if (d > effectiveRange) {
-          const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
-          moveWithSlide(unit, Math.cos(angle) * effectiveSpeed * 50, Math.sin(angle) * effectiveSpeed * 50, dt);
+          const dir = getSmartDirection(unit, target.x, target.y);
+          moveWithSlide(unit, dir.dx * effectiveSpeed * 50, dir.dy * effectiveSpeed * 50, dt);
         }
       }
     } else if (target) {
@@ -2392,15 +2533,14 @@ function updateGame(dt) {
             let goalX = target.x, goalY = target.y;
             // Melee surround: spread around target instead of all walking to center
             if (unit.range <= 30 && d < 80) {
-              // Use unit's position relative to target as surround angle
               const surroundAngle = Math.atan2(unit.y - target.y, unit.x - target.x);
               const surroundDist = (target.r || 8) + unit.r + 3;
               goalX = target.x + Math.cos(surroundAngle) * surroundDist;
               goalY = target.y + Math.sin(surroundAngle) * surroundDist;
             }
-            const angle = Math.atan2(goalY - unit.y, goalX - unit.x);
+            const dir = getSmartDirection(unit, goalX, goalY);
             const moveSpeed = effectiveSpeed * 50;
-            moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
+            moveWithSlide(unit, dir.dx * moveSpeed, dir.dy * moveSpeed, dt);
           }
         }
         // Siege tank: unsiege when target out of range
@@ -2458,7 +2598,8 @@ function updateGame(dt) {
         }
         if (!blocked) {
           const moveSpeed = effectiveSpeed * 50;
-          moveWithSlide(unit, (dx / dLen) * moveSpeed, (dy / dLen) * moveSpeed, dt);
+          const smartDir = getSmartDirection(unit, targetX, targetY);
+          moveWithSlide(unit, smartDir.dx * moveSpeed, smartDir.dy * moveSpeed, dt);
         }
       } else if (dLen <= 12 && effectiveSpeed > 0) {
         // Idle scatter: slight random movement when at rally point
