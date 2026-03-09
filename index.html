@@ -849,6 +849,7 @@ function spawnUnit(defName, x, y, team) {
       despawnTimer: def.despawnTimer || 0,
       supply: def.supply || 1,
       slowTimer: 0,
+      leashX: 0, leashY: 0,
     });
     // Apply unit-specific upgrades
     const u = units[units.length - 1];
@@ -1130,18 +1131,14 @@ function isDetected(cloakedUnit, byTeam) {
 function findTarget(unit) {
   const isPlayer = unit.team === 'player';
 
-  // Units engage within range + chase distance (prevents wandering across map)
-  let maxRange;
-  if (unit.worker) {
-    maxRange = 0; // workers don't fight
-  } else {
-    maxRange = unit.range + 100;
-  }
+  // Workers don't fight
+  if (unit.worker) return null;
 
-  let best = null;
-  let bestDist = Infinity;
+  const maxRange = unit.range + 150;
 
+  // Healers: find nearest damaged friendly
   if (unit.healer) {
+    let best = null, bestDist = Infinity;
     for (const u of units) {
       if (u.dead || u.team !== unit.team || u === unit || u.healer) continue;
       if (u.hp >= u.maxHp) continue;
@@ -1151,30 +1148,48 @@ function findTarget(unit) {
     return best;
   }
 
+  // Priority-weighted target selection
+  let best = null;
+  let bestScore = -Infinity;
+  const currentTarget = unit.target;
+
   for (const u of units) {
     if (u.dead || u.team === unit.team) continue;
-    // Cloaked units can only be targeted if detected
     if (u.cloaked && !isDetected(u, unit.team)) continue;
     const d = dist(unit, u);
-    if (d < bestDist && d < maxRange) { bestDist = d; best = u; }
+    if (d >= maxRange) continue;
+
+    let score = 0;
+    score -= d * 0.3;                              // closer = better
+    if (d <= unit.range) score += 40;               // in weapon range
+    if (u.hp < u.maxHp * 0.35) score += 30;         // focus fire low HP
+    if (u.worker) score += 20;                       // prefer workers
+    if (u === currentTarget) score += 25;            // target stickiness
+    if (u._focusCount > 0) score += Math.min(u._focusCount * 5, 15); // allies focusing
+
+    if (score > bestScore) { bestScore = score; best = u; }
   }
 
-  // Target towers/base when in range
+  // Structures (lower priority than units)
   const enemyTowers = isPlayer ? towers.enemy : towers.player;
   for (const key of ['base']) {
     const t = enemyTowers[key];
     if (t.hp <= 0) continue;
     const d = dist(unit, t);
-    if (d < bestDist && d < maxRange) { bestDist = d; best = t; }
+    if (d < maxRange) {
+      const score = -d * 0.3 + (d <= unit.range ? 40 : 0) - 10;
+      if (score > bestScore) { bestScore = score; best = t; }
+    }
   }
-
-  // Target enemy buildings when in range (skip _base — handled by tower system above)
   const enemyBldgs = isPlayer ? enemyBuildings : playerBuildings;
   for (const b of enemyBldgs) {
     if (b.hp <= 0 || b.type === '_base') continue;
     if (!b.r) { const bdef = BUILDING_DEFS[b.type]; b.r = bdef ? bdef.r : 14; }
     const d = dist(unit, b);
-    if (d < bestDist && d < maxRange) { bestDist = d; best = b; }
+    if (d < maxRange) {
+      const score = -d * 0.3 + (d <= unit.range ? 40 : 0) - 20;
+      if (score > bestScore) { bestScore = score; best = b; }
+    }
   }
 
   return best;
@@ -2046,6 +2061,12 @@ function updateGame(dt) {
   // Fog of war (disabled)
   // updateFog();
 
+  // Pre-compute focus counts (how many units are targeting each enemy)
+  for (const u of units) u._focusCount = 0;
+  for (const u of units) {
+    if (!u.dead && u.target && u.target._focusCount !== undefined) u.target._focusCount++;
+  }
+
   // Units
   for (const unit of units) {
     if (unit.dead) continue;
@@ -2062,7 +2083,19 @@ function updateGame(dt) {
 
     // Move-only mode: player non-worker units skip target acquisition
     const skipTarget = (playerMoveMode === 'move' && unit.team === 'player');
-    const target = skipTarget ? null : findTarget(unit);
+    let target = skipTarget ? null : findTarget(unit);
+
+    // Target leashing: record where combat started, drop target if chased too far
+    if (target && target !== unit.target) {
+      // New target acquired — record leash point
+      unit.leashX = unit.x;
+      unit.leashY = unit.y;
+    }
+    if (target && unit.leashX) {
+      const leashDist = Math.sqrt((unit.x - unit.leashX) ** 2 + (unit.y - unit.leashY) ** 2);
+      if (leashDist > 250) target = null; // Too far from engagement point, return
+    }
+    if (!target) { unit.leashX = 0; unit.leashY = 0; } // Reset leash when idle
     unit.target = target;
 
     // Fungal root: can't move
@@ -2277,6 +2310,12 @@ function updateGame(dt) {
             }
           }
         }
+        // Ranged kiting: back up if enemy is too close (stutter-step)
+        if (effectiveRange > 50 && d < effectiveRange * 0.45 && effectiveSpeed > 0 && !unit.siegeMode) {
+          const awayAngle = Math.atan2(unit.y - target.y, unit.x - target.x);
+          const kiteSpeed = effectiveSpeed * 50 * 0.6;
+          moveWithSlide(unit, Math.cos(awayAngle) * kiteSpeed, Math.sin(awayAngle) * kiteSpeed, dt);
+        }
       } else {
         // Zealot charge: burst forward
         if (unit.type === 'zealot' && d > 60 && d < 120 && unit.chargeTimer <= 0) {
@@ -2295,7 +2334,16 @@ function updateGame(dt) {
             }
           }
           if (!blocked) {
-            const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
+            let goalX = target.x, goalY = target.y;
+            // Melee surround: spread around target instead of all walking to center
+            if (unit.range <= 30 && d < 80) {
+              // Use unit's position relative to target as surround angle
+              const surroundAngle = Math.atan2(unit.y - target.y, unit.x - target.x);
+              const surroundDist = (target.r || 8) + unit.r + 3;
+              goalX = target.x + Math.cos(surroundAngle) * surroundDist;
+              goalY = target.y + Math.sin(surroundAngle) * surroundDist;
+            }
+            const angle = Math.atan2(goalY - unit.y, goalX - unit.x);
             const moveSpeed = effectiveSpeed * 50;
             moveWithSlide(unit, Math.cos(angle) * moveSpeed, Math.sin(angle) * moveSpeed, dt);
           }
@@ -2317,15 +2365,34 @@ function updateGame(dt) {
           targetX = ARENA_W / 2;
           targetY = ENEMY_CHOKE_Y;
         } else {
-          // Attack toward player base
           targetX = towers.player.base.x;
           targetY = towers.player.base.y - 50;
         }
       }
+
+      // Battle concave: ranged units offset laterally and stay behind melee
+      if (unit.range > 50 && effectiveSpeed > 0) {
+        // Count same-team ranged units and find our index for spread
+        let rangedIdx = 0, rangedCount = 0;
+        for (const u of units) {
+          if (u.dead || u.team !== unit.team || u.worker || u.range <= 50) continue;
+          if (u === unit) rangedIdx = rangedCount;
+          rangedCount++;
+        }
+        if (rangedCount > 1) {
+          // Lateral spread perpendicular to march direction
+          const lateralOffset = (rangedIdx - rangedCount / 2) * (unit.r * 2.8);
+          targetX += lateralOffset * 0.5; // Spread horizontally
+          // Stay behind melee line
+          if (isPlayer) targetY += 25;
+          else targetY -= 25;
+        }
+      }
+
       const dx = targetX - unit.x;
       const dy = targetY - unit.y;
       const dLen = Math.sqrt(dx * dx + dy * dy);
-      if (dLen > 8 && effectiveSpeed > 0) {
+      if (dLen > 12 && effectiveSpeed > 0) {
         // Check force field collision
         let blocked = false;
         if (!unit.isAir) {
@@ -2337,6 +2404,16 @@ function updateGame(dt) {
         if (!blocked) {
           const moveSpeed = effectiveSpeed * 50;
           moveWithSlide(unit, (dx / dLen) * moveSpeed, (dy / dLen) * moveSpeed, dt);
+        }
+      } else if (dLen <= 12 && effectiveSpeed > 0) {
+        // Idle scatter: slight random movement when at rally point
+        if (Math.random() < 0.015) {
+          const jx = (Math.random() - 0.5) * 4;
+          const jy = (Math.random() - 0.5) * 4;
+          if (!posBlocked(unit.x + jx, unit.y + jy, unit.r)) {
+            unit.x += jx;
+            unit.y += jy;
+          }
         }
       }
       // Siege tank: unsiege when no target
@@ -2354,13 +2431,18 @@ function updateGame(dt) {
     for (let j = i + 1; j < units.length; j++) {
       const b = units[j];
       if (b.dead || b.worker) continue;
+      // Skip air-ground collisions
+      if (a.isAir !== b.isAir) continue;
       const dx = a.x - b.x;
       const dy = a.y - b.y;
       const minDist = a.r + b.r + 2;
       const d2 = dx * dx + dy * dy;
       if (d2 < minDist * minDist && d2 > 0.1) {
         const d = Math.sqrt(d2);
-        const pushStr = (minDist - d) * 0.8 * dt * 30;
+        const sameTeam = a.team === b.team;
+        // Stronger push for same-team (prevent stacking), weaker for enemies (let them fight)
+        const pushMult = sameTeam ? 1.8 : 0.4;
+        const pushStr = (minDist - d) * pushMult * dt * 30;
         const nx = dx / d * pushStr;
         const ny = dy / d * pushStr;
         // Only push if destination isn't blocked
