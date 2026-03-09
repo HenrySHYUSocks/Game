@@ -1344,10 +1344,12 @@ function findTarget(unit) {
     return best;
   }
 
-  // Priority-weighted target selection
+  // Priority-weighted target selection (enhanced for AI units)
   let best = null;
   let bestScore = -Infinity;
   const currentTarget = unit.target;
+  const isAIUnit = unit.team === 'enemy';
+  const microEnabled = isAIUnit && AI_PARAMS[aiDifficulty].microEnabled;
 
   for (const u of units) {
     if (u.dead || u.team === unit.team) continue;
@@ -1362,6 +1364,19 @@ function findTarget(unit) {
     if (u.worker) score += 20;                       // prefer workers
     if (u === currentTarget) score += 25;            // target stickiness
     if (u._focusCount > 0) score += Math.min(u._focusCount * 5, 15); // allies focusing
+
+    // Enhanced AI targeting: focus fire and threat assessment
+    if (microEnabled) {
+      // Prefer killing blows (target we can finish off)
+      if (u.hp <= unit.dmg * 2) score += 20;
+      // Prefer high DPS threats
+      const threatDps = u.dmg / Math.max(0.3, u.atkSpeed);
+      score += Math.min(threatDps * 0.5, 15);
+      // Prefer non-workers in combat
+      if (!u.worker) score += 10;
+      // Penalize heavily armored targets when we do low damage
+      if (u.hp > unit.dmg * 10) score -= 10;
+    }
 
     if (score > bestScore) { bestScore = score; best = u; }
   }
@@ -1771,12 +1786,19 @@ function getBuildingForUnit(unitType, buildings) {
     }
     return best;
   }
-  // Find building with shortest queue that can produce this unit
+  // Find building with shortest queue that can produce this unit (respecting addon compatibility)
   let best = null, bestQ = Infinity;
   for (const b of buildings) {
     if (!b.built) continue;
     const bdef = BUILDING_DEFS[b.type];
     if (bdef && bdef.unlocks && bdef.unlocks.includes(unitType)) {
+      // Check addon compatibility for Terran buildings
+      if (bdef.canAddon) {
+        const isTechlabUnit = bdef.techlabUnits && bdef.techlabUnits.includes(unitType);
+        const isReactorUnit = bdef.reactorUnits && bdef.reactorUnits.includes(unitType);
+        if (isTechlabUnit && b.addon !== 'techlab') continue; // Tech lab units need tech lab
+        if (!isTechlabUnit && !isReactorUnit) continue; // Unknown unit for this addon type
+      }
       if (b.queue.length < bestQ) { bestQ = b.queue.length; best = b; }
     }
   }
@@ -1788,6 +1810,16 @@ function updateAllBuildingQueues(buildings, team, dt) {
   for (const b of buildings) {
     // Update macro cooldown
     if (b.macroCooldown > 0) b.macroCooldown -= dt;
+    // Update addon swap timer
+    if (b.swapTimer > 0) {
+      b.swapTimer -= dt;
+      if (b.swapTimer <= 0) {
+        b.addon = b.swapTarget;
+        b.swapTarget = null;
+        b.swapTimer = 0;
+        spawnParticle(b.x, b.y, b.addon === 'techlab' ? '#cc88ff' : '#66ff66', 12);
+      }
+    }
     // Chrono boost: speed up production
     if (b.chronoTimer > 0) b.chronoTimer -= dt;
     if (!b.queue || b.queue.length === 0) continue;
@@ -2512,6 +2544,14 @@ function updateGame(dt) {
           const kiteSpeed = effectiveSpeed * 50 * 0.6;
           moveWithSlide(unit, Math.cos(awayAngle) * kiteSpeed, Math.sin(awayAngle) * kiteSpeed, dt);
         }
+        // AI micro kiting: ranged enemy units stutter-step away when on attack cooldown
+        else if (unit.team === 'enemy' && unit._microKite && effectiveSpeed > 0 && unit.atkTimer > 0) {
+          const kx = unit._microKiteX || unit.x;
+          const ky = unit._microKiteY || unit.y;
+          const dir = getSmartDirection(unit, kx, ky);
+          const kiteSpeed = effectiveSpeed * 50 * 0.8;
+          moveWithSlide(unit, dir.dx * kiteSpeed, dir.dy * kiteSpeed, dt);
+        }
       } else {
         // Zealot charge: burst forward
         if (unit.type === 'zealot' && d > 60 && d < 120 && unit.chargeTimer <= 0) {
@@ -2821,46 +2861,220 @@ let aiTimer = 0;
 let aiArmyValue = 0;
 let aiLastAttackTime = 0;
 let aiDifficulty = 'hard';
+let aiPhase = 'opening'; // opening, early, mid, late
+let aiBuildOrderIndex = 0;
+let aiRallyPoint = null; // army grouping point
+let aiGroupTimer = 0; // time spent grouping before attack
+let aiMicroTimer = 0; // micro update timer
 
 const AI_PARAMS = {
   easy: {
-    decisionMin: 1.2, decisionMax: 2.0,
-    attackThreshold: 1.5, attackCooldown: 60,
-    expandTime: 999, // never expand
-    prodBuilding2: 999, prodBuilding3: 999,
+    decisionMin: 0.8, decisionMax: 1.2,
+    attackThreshold: 1.8, attackCooldown: 50,
     workerCap: 10, gasTime: 25,
-    rushTime: 999, rushUnits: 99,
     maxQueue: 2, supplyBuffer: 2,
-    counterWeight: 0, // no countering
+    counterWeight: 0,
     incomeBonus: 0,
+    microEnabled: false, // no kiting
+    groupBeforeAttack: false,
+    phaseWeights: { workerW: 1.0, armyW: 0.5, techW: 0.3, expandW: 0.0, defenseW: 0.8 },
   },
   hard: {
-    decisionMin: 0.3, decisionMax: 0.6,
-    attackThreshold: 0.7, attackCooldown: 20,
-    expandTime: 25, prodBuilding2: 30, prodBuilding3: 90,
+    decisionMin: 0.15, decisionMax: 0.3,
+    attackThreshold: 0.9, attackCooldown: 20,
     workerCap: 20, gasTime: 6,
-    rushTime: 30, rushUnits: 2,
     maxQueue: 4, supplyBuffer: 6,
     counterWeight: 4,
-    incomeBonus: 0.3, // 30% bonus mineral income
+    incomeBonus: 0.3,
+    microEnabled: true,
+    groupBeforeAttack: true,
+    phaseWeights: { workerW: 1.2, armyW: 1.0, techW: 0.8, expandW: 0.7, defenseW: 1.0 },
   },
   impossible: {
-    decisionMin: 0.1, decisionMax: 0.2,
-    attackThreshold: 0.4, attackCooldown: 8,
-    expandTime: 15, prodBuilding2: 15, prodBuilding3: 30,
+    decisionMin: 0.08, decisionMax: 0.15,
+    attackThreshold: 0.5, attackCooldown: 8,
     workerCap: 24, gasTime: 4,
-    rushTime: 15, rushUnits: 2,
     maxQueue: 5, supplyBuffer: 8,
     counterWeight: 8,
-    incomeBonus: 0.6, // 60% bonus mineral income
+    incomeBonus: 0.6,
+    microEnabled: true,
+    groupBeforeAttack: true,
+    phaseWeights: { workerW: 1.5, armyW: 1.5, techW: 1.0, expandW: 1.0, defenseW: 1.2 },
   },
 };
 
+// ---- Faction-specific build orders ----
+const AI_BUILD_ORDERS = {
+  terran: [
+    { condition: (s) => s.workerCount < 6, action: 'worker' },
+    { condition: (s) => s.supplyHeadroom <= 2 && s.pendingSupply === 0, action: 'supply' },
+    { condition: (s) => s.workerCount >= 6 && !s.hasGas && s.minerals >= 75, action: 'gas' },
+    { condition: (s) => s.workerCount >= 6 && s.prodCount === 0, action: 'barracks' },
+    { condition: (s) => s.workerCount < 10, action: 'worker' },
+    { condition: (s) => s.hasProdBuilding && s.combatCount < 2, action: 'army' },
+    { condition: (s) => s.workerCount < 12, action: 'worker' },
+    { condition: (s) => s.combatCount >= 2 && s.prodCount < 2, action: 'barracks' },
+    { condition: (s) => s.prodCount >= 2 && !s.hasTier2, action: 'factory' },
+    { condition: (s) => true, action: 'done' },
+  ],
+  protoss: [
+    { condition: (s) => s.workerCount < 6, action: 'worker' },
+    { condition: (s) => s.supplyHeadroom <= 2 && s.pendingSupply === 0, action: 'supply' },
+    { condition: (s) => s.workerCount >= 6 && !s.hasGas && s.minerals >= 75, action: 'gas' },
+    { condition: (s) => s.workerCount >= 6 && s.prodCount === 0, action: 'gateway' },
+    { condition: (s) => s.workerCount < 10, action: 'worker' },
+    { condition: (s) => s.hasProdBuilding && s.combatCount < 2, action: 'army' },
+    { condition: (s) => s.workerCount < 12, action: 'worker' },
+    { condition: (s) => s.combatCount >= 2 && s.prodCount < 2, action: 'gateway' },
+    { condition: (s) => s.prodCount >= 2 && !s.hasTier2, action: 'robo' },
+    { condition: (s) => true, action: 'done' },
+  ],
+  zerg: [
+    { condition: (s) => s.workerCount < 6, action: 'worker' },
+    { condition: (s) => s.supplyHeadroom <= 2 && s.pendingSupply === 0, action: 'supply' },
+    { condition: (s) => s.workerCount >= 5 && s.prodCount === 0, action: 'pool' },
+    { condition: (s) => s.workerCount >= 6 && !s.hasGas && s.minerals >= 75, action: 'gas' },
+    { condition: (s) => s.workerCount < 10, action: 'worker' },
+    { condition: (s) => s.hasProdBuilding && s.combatCount < 3, action: 'army' },
+    { condition: (s) => s.workerCount < 12, action: 'worker' },
+    { condition: (s) => s.combatCount >= 3 && s.prodCount < 2, action: 'pool' },
+    { condition: (s) => s.prodCount >= 2 && !s.hasTier2, action: 'den' },
+    { condition: (s) => true, action: 'done' },
+  ],
+};
+
+// ---- Utility scoring functions ----
+function aiGetState() {
+  const P = AI_PARAMS[aiDifficulty];
+  const workerCount = units.filter(u => !u.dead && u.team === 'enemy' && u.worker).length;
+  const combatUnits = units.filter(u => !u.dead && u.team === 'enemy' && !u.worker);
+  const combatCount = combatUnits.length;
+  const prodBuildings = enemyBuildings.filter(b => {
+    const bd = BUILDING_DEFS[b.type];
+    return b.built && bd && bd.unlocks && bd.unlocks.length > 0 && !bd.isExpansion && !bd.isThirdExpansion && b.type !== '_base';
+  });
+  const prodCount = prodBuildings.length;
+  const allProdCount = enemyBuildings.filter(b => {
+    const bd = BUILDING_DEFS[b.type];
+    return bd && bd.unlocks && bd.unlocks.length > 0 && !bd.isExpansion && !bd.isThirdExpansion && b.type !== '_base';
+  }).length;
+  const hasProdBuilding = prodCount > 0;
+  const baseCount = 1 + (hasExpansion('enemy') ? 1 : 0) + (hasThirdExpansion('enemy') ? 1 : 0);
+  const hasGas = enemyBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding);
+  const gasCount = enemyBuildings.filter(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding).length;
+  const tier2Types = { terran: 'factory', protoss: 'robo', zerg: 'den' };
+  const tier3Types = { terran: 'starport', protoss: 'fleetbeacon', zerg: 'spire' };
+  const hasTier2 = enemyBuildings.some(b => b.type === tier2Types[enemyFaction]);
+  const hasTier3 = enemyBuildings.some(b => b.type === tier3Types[enemyFaction]);
+  const hasUpgBldg = enemyBuildings.some(b => {
+    const ut = { terran: 'engineeringbay', protoss: 'forge', zerg: 'evolutionchamber' };
+    return b.type === ut[enemyFaction] && b.built;
+  });
+  const pendingSupply = enemySupplyQueue.length;
+  const supplyHeadroom = enemySupplyMax - enemySupply;
+  const playerArmy = getArmyValue('player');
+  const enemyArmy = getArmyValue('enemy');
+  const playerComp = getPlayerComposition();
+  const nearBase = units.filter(u => !u.dead && u.team === 'player' && !u.worker && u.y < ENEMY_BASE_Y + 150).length;
+  const baseHP = towers.enemy.base.hp;
+  const baseMaxHP = towers.enemy.base.maxHp;
+  return {
+    workerCount, combatCount, combatUnits, prodCount, allProdCount, hasProdBuilding,
+    baseCount, hasGas, gasCount, hasTier2, hasTier3, hasUpgBldg,
+    pendingSupply, supplyHeadroom, playerArmy, enemyArmy, playerComp,
+    nearBase, baseHP, baseMaxHP, minerals: enemyMinerals, gas: enemyGas,
+    prodBuildings,
+  };
+}
+
+function aiSupplyUtility(s) {
+  if (s.supplyHeadroom <= 0 && s.pendingSupply === 0) return 100;
+  if (s.supplyHeadroom <= 2 && s.pendingSupply === 0) return 85;
+  const P = AI_PARAMS[aiDifficulty];
+  if (s.supplyHeadroom <= P.supplyBuffer && s.pendingSupply < 2) return 50;
+  return 0;
+}
+
+function aiWorkerUtility(s) {
+  const P = AI_PARAMS[aiDifficulty];
+  const idealWorkers = Math.min(s.baseCount * 8, P.workerCap + (s.baseCount - 1) * 6);
+  if (s.workerCount >= idealWorkers) return 0;
+  const deficit = idealWorkers - s.workerCount;
+  // Phase modifiers
+  const phaseW = { opening: 1.5, early: 1.2, mid: 0.8, late: 0.4 }[aiPhase] || 1;
+  return Math.min(75, deficit * 12 * phaseW * P.phaseWeights.workerW);
+}
+
+function aiArmyUtility(s) {
+  const P = AI_PARAMS[aiDifficulty];
+  if (!s.hasProdBuilding) return 0;
+  // More urgent when enemy army is bigger
+  const armyRatio = s.playerArmy > 0 ? s.enemyArmy / s.playerArmy : 2;
+  let score = 60;
+  if (armyRatio < 0.5) score = 90; // we're behind, build more
+  else if (armyRatio < 0.8) score = 75;
+  else if (armyRatio > 1.5) score = 40;
+  // Under attack boost
+  if (s.nearBase >= 2 || s.baseHP < s.baseMaxHP * 0.7) score += 25;
+  // Phase weights
+  const phaseW = { opening: 0.5, early: 1.0, mid: 1.3, late: 1.5 }[aiPhase] || 1;
+  return Math.min(100, score * phaseW * P.phaseWeights.armyW);
+}
+
+function aiExpandUtility(s) {
+  const P = AI_PARAMS[aiDifficulty];
+  if (P.phaseWeights.expandW === 0) return 0;
+  if (hasExpansion('enemy') && hasThirdExpansion('enemy')) return 0;
+  if (s.minerals < 400) return 0;
+  // Don't expand when under pressure
+  if (s.nearBase >= 2) return 0;
+  let score = 0;
+  if (!hasExpansion('enemy') && s.prodCount >= 2 && s.workerCount >= 10) score = 55;
+  else if (hasExpansion('enemy') && !hasThirdExpansion('enemy') && s.prodCount >= 3 && s.workerCount >= 16) score = 40;
+  const phaseW = { opening: 0.0, early: 0.8, mid: 1.0, late: 0.6 }[aiPhase] || 0.5;
+  return score * phaseW * P.phaseWeights.expandW;
+}
+
+function aiTechUtility(s) {
+  const P = AI_PARAMS[aiDifficulty];
+  if (s.prodCount < 2) return 0;
+  let score = 0;
+  if (!s.hasTier2 && s.gas >= 50) score = 50;
+  else if (s.hasTier2 && !s.hasTier3 && s.gas >= 150 && s.prodCount >= 3) score = 40;
+  else if (!s.hasUpgBldg && s.prodCount >= 2 && s.minerals >= 125) score = 35;
+  const phaseW = { opening: 0.0, early: 0.5, mid: 1.0, late: 1.2 }[aiPhase] || 0.5;
+  return score * phaseW * P.phaseWeights.techW;
+}
+
+function aiDefenseUtility(s) {
+  const P = AI_PARAMS[aiDifficulty];
+  const defenseType = { terran:'bunker', protoss:'photoncannon', zerg:'spinecrawler' }[enemyFaction];
+  const defCount = enemyBuildings.filter(b => b.type === defenseType).length;
+  if (defCount >= 2) return 0;
+  let score = 0;
+  if (s.nearBase >= 1) score = 70;
+  else if (defCount === 0 && s.hasProdBuilding) score = 30;
+  return score * P.phaseWeights.defenseW;
+}
+
 function setDifficulty(diff) {
   aiDifficulty = diff;
+  aiPhase = 'opening';
+  aiBuildOrderIndex = 0;
   document.getElementById('diffEasy').style.border = diff === 'easy' ? '1px solid #44ff44' : 'none';
   document.getElementById('diffHard').style.border = diff === 'hard' ? '1px solid #ffaa00' : 'none';
   document.getElementById('diffImpossible').style.border = diff === 'impossible' ? '1px solid #ff4444' : 'none';
+}
+
+// ---- AI Phase transitions (condition-based, not timer-based) ----
+function updateAIPhase(s) {
+  if (aiPhase === 'opening' && s.hasProdBuilding && s.combatCount >= 2) {
+    aiPhase = 'early';
+  } else if (aiPhase === 'early' && (hasExpansion('enemy') || s.prodCount >= 3)) {
+    aiPhase = 'mid';
+  } else if (aiPhase === 'mid' && s.hasTier3 && s.prodCount >= 4) {
+    aiPhase = 'late';
+  }
 }
 
 function getArmyValue(team) {
@@ -2888,34 +3102,149 @@ function getPlayerComposition() {
 function getUnitWeight(unitType, playerComp) {
   const def = UNIT_DEFS[unitType];
   const cw = AI_PARAMS[aiDifficulty].counterWeight;
-  let weight = 2; // base weight ensures AI always builds something
-  // Prefer anti-air when player has lots of air
-  if (playerComp.air > 2) {
-    if (def.isAir || def.range > 100) weight += cw;
+  let weight = 2;
+
+  // ---- Counter-composition logic ----
+  // Anti-air when player has air units
+  if (playerComp.air > 0) {
+    const airRatio = playerComp.air / Math.max(1, playerComp.total);
+    if (!def.isAir && def.range > 80) weight += Math.ceil(cw * airRatio * 1.5); // ground anti-air (marines, stalkers, hydra)
+    if (def.isAir && def.range > 60) weight += Math.ceil(cw * airRatio); // air-to-air
   }
-  // Prefer splash damage vs masses of units
+  // Anti-ground when player is ground-heavy
+  if (playerComp.ground > playerComp.air * 2) {
+    if (def.splash) weight += Math.ceil(cw * 0.8); // splash vs ground armies
+    if (def.range > 100) weight += Math.ceil(cw * 0.4); // long range is good
+  }
+  // Splash vs masses
   if (playerComp.total > 6) {
-    if (def.splash) weight += Math.ceil(cw * 0.8);
+    if (def.splash) weight += Math.ceil(cw * 0.6);
   }
-  // Prefer ranged vs melee-heavy compositions
-  if (playerComp.melee > playerComp.ranged) {
+  // Ranged vs melee-heavy
+  if (playerComp.melee > playerComp.ranged + 2) {
     if (def.range > 80) weight += Math.ceil(cw * 0.5);
   }
-  // Prefer cheap units early game, expensive later
-  if (gameTime < 60) {
-    if (def.cost <= 100) weight += 2;
-  } else if (gameTime > 180) {
-    if (def.cost >= 200) weight += 1;
+
+  // ---- Phase-based preferences ----
+  if (aiPhase === 'opening' || aiPhase === 'early') {
+    if (def.cost <= 100) weight += 3; // cheap units early
+    if (def.cost >= 300) weight -= 2;
+  } else if (aiPhase === 'mid') {
+    if (def.cost >= 150 && def.cost <= 300) weight += 2; // mid-tier
+  } else if (aiPhase === 'late') {
+    if (def.cost >= 200) weight += 3; // big expensive units
+    if (def.cost <= 75) weight -= 1;
   }
-  // Healers are valuable but don't need many
+
+  // ---- Army composition balance ----
+  // Healers: always want 1-2, never more
   if (def.healer) {
     const healerCount = units.filter(u => !u.dead && u.team === 'enemy' && u.healer).length;
-    weight = healerCount < 2 ? 3 : 0;
+    weight = healerCount < 2 ? Math.max(4, cw) : 0;
   }
-  // Diversify: bonus for unit types we don't have yet
-  const hasAny = units.some(u => !u.dead && u.team === 'enemy' && u.type === unitType);
-  if (!hasAny) weight += Math.ceil(cw * 0.5);
-  return weight;
+  // Detectors: want at least 1
+  if (def.detector) {
+    const detCount = units.filter(u => !u.dead && u.team === 'enemy' && u.detector).length;
+    weight = detCount < 1 ? 5 : 0;
+  }
+  // Count current units of this type - diversify
+  const typeCount = units.filter(u => !u.dead && u.team === 'enemy' && u.type === unitType).length;
+  if (typeCount === 0) weight += Math.ceil(cw * 0.6); // bonus for new types
+  else if (typeCount > 6) weight -= 1; // slight penalty for over-saturating one type
+
+  // ---- Specific unit synergy bonuses ----
+  const hasAnyType = (t) => units.some(u => !u.dead && u.team === 'enemy' && u.type === t);
+  // Medivacs with bio army
+  if (unitType === 'medivac' && (hasAnyType('marine') || hasAnyType('marauder'))) weight += 3;
+  // Siege tanks with marine screen
+  if (unitType === 'siegetank' && hasAnyType('marine') && typeCount < 3) weight += 2;
+
+  return Math.max(0, weight);
+}
+
+// ---- AI Micro controller: kiting, focus fire, army grouping ----
+function updateAIMicro(dt) {
+  const P = AI_PARAMS[aiDifficulty];
+  if (!P.microEnabled) return;
+
+  aiMicroTimer -= dt;
+  if (aiMicroTimer > 0) return;
+  aiMicroTimer = 0.1; // micro decisions every 100ms
+
+  const enemyCombatUnits = units.filter(u => !u.dead && u.team === 'enemy' && !u.worker);
+  const playerCombatUnits = units.filter(u => !u.dead && u.team === 'player' && !u.worker);
+  if (playerCombatUnits.length === 0) return;
+
+  for (const unit of enemyCombatUnits) {
+    // Skip spell casters and units without targets
+    if (unit.type === 'hightemplar' || unit.type === 'infestor' || unit.type === 'raven' ||
+        unit.type === 'observer' || unit.type === 'overseer') continue;
+    if (unit.siegeMode) continue;
+    if (unit.fungalRootTimer > 0) continue;
+
+    const isRanged = unit.range > 50;
+    if (!isRanged) continue; // micro mainly benefits ranged units
+
+    // Find nearest enemy
+    let nearestEnemy = null, nearestDist = Infinity;
+    for (const e of playerCombatUnits) {
+      const d = dist(unit, e);
+      if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
+    }
+    if (!nearestEnemy) continue;
+
+    // Stutter-step: if attack is on cooldown and enemy melee is close, kite away
+    if (unit.atkTimer > 0 && nearestDist < unit.range * 0.6) {
+      const enemyIsRanged = nearestEnemy.range > 50;
+      if (!enemyIsRanged) {
+        // Kite away from melee
+        unit._microKite = true;
+        unit._microKiteX = unit.x + (unit.x - nearestEnemy.x) * 0.5;
+        unit._microKiteY = unit.y + (unit.y - nearestEnemy.y) * 0.5;
+      }
+    } else {
+      unit._microKite = false;
+    }
+  }
+}
+
+// ---- AI Army grouping: wait for army to mass before attacking ----
+function updateAIArmyGrouping(dt) {
+  const P = AI_PARAMS[aiDifficulty];
+  if (!P.groupBeforeAttack) return;
+
+  const enemyCombatUnits = units.filter(u => !u.dead && u.team === 'enemy' && !u.worker);
+  if (enemyCombatUnits.length === 0) return;
+
+  // Rally point is at the enemy choke
+  const rallyX = ARENA_W / 2;
+  const rallyY = ENEMY_CHOKE_Y;
+
+  // Count how many combat units are near rally point
+  const nearRally = enemyCombatUnits.filter(u => {
+    const dx = u.x - rallyX, dy = u.y - rallyY;
+    return Math.sqrt(dx*dx + dy*dy) < 120;
+  }).length;
+  const groupRatio = nearRally / enemyCombatUnits.length;
+
+  // Attack when 60%+ of army is grouped, or we have overwhelming force
+  const enemyArmy = getArmyValue('enemy');
+  const playerArmy = getArmyValue('player');
+  if (enemyStance === 'defend') return; // don't override defend
+
+  if (groupRatio >= 0.6 && enemyCombatUnits.length >= 4) {
+    // Group is ready
+    aiGroupTimer += dt;
+    if (aiGroupTimer > 2 || enemyArmy > playerArmy * P.attackThreshold) {
+      enemyStance = 'attack';
+      aiLastAttackTime = gameTime;
+      aiGroupTimer = 0;
+    }
+  } else if (enemyStance === 'attack' && groupRatio < 0.3 && enemyCombatUnits.length < 3) {
+    // Lost most of our army, regroup
+    enemyStance = 'defend';
+    aiGroupTimer = 0;
+  }
 }
 
 function aiBuildUnit(unitType) {
@@ -2967,47 +3296,229 @@ function aiBuildBuilding(btype) {
 
 function updateEnemyAI(dt) {
   const P = AI_PARAMS[aiDifficulty];
+
+  // Continuous micro updates (every frame, not just on decision ticks)
+  updateAIMicro(dt);
+  updateAIArmyGrouping(dt);
+
   aiTimer -= dt;
   if (aiTimer > 0) return;
   aiTimer = P.decisionMin + Math.random() * (P.decisionMax - P.decisionMin);
 
-  const workerCount = units.filter(u => !u.dead && u.team === 'enemy' && u.worker).length;
+  const s = aiGetState();
   const workerType = WORKER_TYPE[enemyFaction];
   const workerDef = UNIT_DEFS[workerType];
   const baseBuilding = enemyBuildings.find(b => b.type === '_base');
-  const playerArmy = getArmyValue('player');
-  const enemyArmy = getArmyValue('enemy');
-  const playerComp = getPlayerComposition();
-  const enemyCombatCount = units.filter(u => !u.dead && u.team === 'enemy' && !u.worker).length;
 
-  // Dynamic stance: defend when base is threatened, attack when strong
-  const baseHP = towers.enemy.base.hp;
-  const baseMaxHP = towers.enemy.base.maxHp;
-  const nearBase = units.filter(u => !u.dead && u.team === 'player' && !u.worker && u.y < ENEMY_BASE_Y + 150).length;
-  if (nearBase >= 2 || baseHP < baseMaxHP * 0.7) {
+  // Update game phase
+  updateAIPhase(s);
+
+  // ---- Stance: defend when base is threatened, attack via grouping system ----
+  if (s.nearBase >= 2 || s.baseHP < s.baseMaxHP * 0.7) {
     enemyStance = 'defend';
-  } else if (enemyArmy >= playerArmy * P.attackThreshold || gameTime - aiLastAttackTime > P.attackCooldown) {
-    enemyStance = 'attack';
-    aiLastAttackTime = gameTime;
+  } else if (!P.groupBeforeAttack) {
+    // Simple attack logic for easy AI
+    if (s.enemyArmy >= s.playerArmy * P.attackThreshold || gameTime - aiLastAttackTime > P.attackCooldown) {
+      enemyStance = 'attack';
+      aiLastAttackTime = gameTime;
+    }
   }
-  // Early rush
-  if (gameTime > P.rushTime && enemyCombatCount >= P.rushUnits && enemyStance !== 'defend') {
+  // Rush: attack early with small force if we have enough units
+  if (aiPhase === 'early' && s.combatCount >= 4 && enemyStance !== 'defend' && gameTime - aiLastAttackTime > 15) {
     enemyStance = 'attack';
     aiLastAttackTime = gameTime;
   }
 
-  // ---- Supply: build proactively (background queue) ----
-  if (enemySupply >= enemySupplyMax - P.supplyBuffer) {
-    const supplyType = FACTION_SUPPLY[enemyFaction];
-    const supplyDef = BUILDING_DEFS[supplyType];
-    const pendingSupply = enemySupplyQueue.length;
-    if (pendingSupply < 2 && enemyMinerals >= supplyDef.cost) {
-      enemyMinerals -= supplyDef.cost;
-      enemySupplyQueue.push({ type: supplyType, timeLeft: supplyDef.buildTime, totalTime: supplyDef.buildTime });
+  // ---- Build order phase: follow scripted opening ----
+  const buildOrder = AI_BUILD_ORDERS[enemyFaction];
+  if (aiBuildOrderIndex < buildOrder.length) {
+    const step = buildOrder[aiBuildOrderIndex];
+    if (step.condition(s)) {
+      let executed = false;
+      switch (step.action) {
+        case 'worker':
+          if (canAffordUnit(workerType, 'enemy')) {
+            const wb = getBuildingForUnit(workerType, enemyBuildings);
+            if (wb && wb.queue.length < 2) {
+              enemyMinerals -= workerDef.cost;
+              wb.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
+              executed = true;
+            }
+          }
+          break;
+        case 'supply': {
+          const supplyType = FACTION_SUPPLY[enemyFaction];
+          const supplyDef = BUILDING_DEFS[supplyType];
+          if (enemyMinerals >= supplyDef.cost) {
+            enemyMinerals -= supplyDef.cost;
+            enemySupplyQueue.push({ type: supplyType, timeLeft: supplyDef.buildTime, totalTime: supplyDef.buildTime });
+            executed = true;
+          }
+          break;
+        }
+        case 'gas': {
+          const gasType = FACTION_GAS[enemyFaction];
+          if (enemyMinerals >= BUILDING_DEFS[gasType].cost) {
+            const availGeysers = gasGeysers.enemy.filter(g => {
+              if (g.expansion && !hasExpansion('enemy')) return false;
+              if (g.thirdExp && !hasThirdExpansion('enemy')) return false;
+              return !hasRefineryOnGeyser(g, 'enemy');
+            });
+            if (availGeysers.length > 0) {
+              const geyser = availGeysers[0];
+              enemyMinerals -= BUILDING_DEFS[gasType].cost;
+              const newEGasB = {
+                type: gasType, x: geyser.x, y: geyser.y,
+                hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: BUILDING_DEFS[gasType].buildTime, queue: [],
+              };
+              enemyBuildings.push(newEGasB);
+              lockWorkerForBuilding('enemy', newEGasB);
+              geyser.workers = 3;
+              executed = true;
+            }
+          }
+          break;
+        }
+        case 'army':
+          executed = true; // handled below in combat units section
+          break;
+        case 'done':
+          executed = true;
+          break;
+        default:
+          // Building type (barracks, factory, gateway, robo, pool, den, etc.)
+          if (enemyMinerals >= (BUILDING_DEFS[step.action]?.cost || 999)) {
+            const gasCost = BUILDING_DEFS[step.action]?.gasCost || 0;
+            if (enemyGas >= gasCost) {
+              aiBuildBuilding(step.action);
+              executed = true;
+            }
+          }
+          break;
+      }
+      if (executed) aiBuildOrderIndex++;
+    }
+    // Even during build order, don't skip critical supply/worker actions
+  }
+
+  // ---- Utility-based macro decisions (post build order, or alongside it) ----
+  // Score all possible actions and execute the top ones (can do multiple per tick!)
+  const actions = [
+    { name: 'supply', score: aiSupplyUtility(s) },
+    { name: 'worker', score: aiWorkerUtility(s) },
+    { name: 'army', score: aiArmyUtility(s) },
+    { name: 'expand', score: aiExpandUtility(s) },
+    { name: 'tech', score: aiTechUtility(s) },
+    { name: 'defense', score: aiDefenseUtility(s) },
+  ].sort((a, b) => b.score - a.score);
+
+  // Execute top 2-3 actions if they score above threshold
+  let actionsExecuted = 0;
+  for (const action of actions) {
+    if (action.score < 15 || actionsExecuted >= 3) break;
+
+    switch (action.name) {
+      case 'supply': {
+        const supplyType = FACTION_SUPPLY[enemyFaction];
+        const supplyDef = BUILDING_DEFS[supplyType];
+        if (s.pendingSupply < 2 && enemyMinerals >= supplyDef.cost) {
+          enemyMinerals -= supplyDef.cost;
+          enemySupplyQueue.push({ type: supplyType, timeLeft: supplyDef.buildTime, totalTime: supplyDef.buildTime });
+          actionsExecuted++;
+        }
+        break;
+      }
+      case 'worker': {
+        const maxWorkers = Math.min(P.workerCap + (s.baseCount - 1) * 6, s.baseCount * 12);
+        if (s.workerCount < maxWorkers && canAffordUnit(workerType, 'enemy')) {
+          const wb = getBuildingForUnit(workerType, enemyBuildings);
+          if (wb && wb.queue.length < 2) {
+            enemyMinerals -= workerDef.cost;
+            wb.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
+            actionsExecuted++;
+          }
+        }
+        break;
+      }
+      case 'expand': {
+        const expansionType = FACTION_EXPANSION[enemyFaction];
+        if (!hasExpansion('enemy') && enemyMinerals >= 400) {
+          enemyMinerals -= 400;
+          const newEExpB = {
+            type: expansionType, x: ARENA_W / 2, y: ENEMY_EXP_Y,
+            hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
+            energy: 0, maxEnergy: 200, isOrbital: false,
+          };
+          enemyBuildings.push(newEExpB);
+          lockWorkerForBuilding('enemy', newEExpB);
+          actionsExecuted++;
+        } else if (hasExpansion('enemy') && !hasThirdExpansion('enemy')) {
+          const thirdExpType = FACTION_THIRD_EXPANSION[enemyFaction];
+          const playerHasThird = playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isThirdExpansion);
+          if (!playerHasThird && enemyMinerals >= 400) {
+            enemyMinerals -= 400;
+            const newEThirdB = {
+              type: thirdExpType, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
+              hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 20, queue: [],
+              energy: 0, maxEnergy: 200, isOrbital: false,
+            };
+            enemyBuildings.push(newEThirdB);
+            lockWorkerForBuilding('enemy', newEThirdB);
+            actionsExecuted++;
+          }
+        }
+        break;
+      }
+      case 'tech': {
+        const tier2Types = { terran: 'factory', protoss: 'robo', zerg: 'den' };
+        const tier3Types = { terran: 'starport', protoss: 'fleetbeacon', zerg: 'spire' };
+        const upgradeTypes = { terran: 'engineeringbay', protoss: 'forge', zerg: 'evolutionchamber' };
+        if (!s.hasTier2) {
+          const t2 = tier2Types[enemyFaction];
+          if (enemyMinerals >= BUILDING_DEFS[t2].cost && enemyGas >= (BUILDING_DEFS[t2].gasCost || 0)) {
+            aiBuildBuilding(t2);
+            actionsExecuted++;
+          }
+        } else if (!s.hasTier3 && s.prodCount >= 3) {
+          const t3 = tier3Types[enemyFaction];
+          if (enemyMinerals >= BUILDING_DEFS[t3].cost && enemyGas >= (BUILDING_DEFS[t3].gasCost || 0)) {
+            aiBuildBuilding(t3);
+            actionsExecuted++;
+          }
+        } else if (!s.hasUpgBldg) {
+          const ubType = upgradeTypes[enemyFaction];
+          if (enemyMinerals >= BUILDING_DEFS[ubType].cost) {
+            aiBuildBuilding(ubType);
+            actionsExecuted++;
+          }
+        }
+        break;
+      }
+      case 'defense': {
+        const defenseType = { terran:'bunker', protoss:'photoncannon', zerg:'spinecrawler' }[enemyFaction];
+        const defCount = enemyBuildings.filter(b => b.type === defenseType).length;
+        if (defCount < 2 && enemyMinerals >= BUILDING_DEFS[defenseType].cost) {
+          const bdef = BUILDING_DEFS[defenseType];
+          enemyMinerals -= bdef.cost;
+          const bx = defCount === 0 ? LANE_X[0] : LANE_X[1];
+          const newEDefB = {
+            type: defenseType, x: bx, y: ENEMY_CHOKE_Y,
+            hp: bdef.defenseHp, maxHp: bdef.defenseHp, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
+          };
+          enemyBuildings.push(newEDefB);
+          lockWorkerForBuilding('enemy', newEDefB);
+          actionsExecuted++;
+        }
+        break;
+      }
+      case 'army':
+        // Handled below in production queue filling
+        actionsExecuted++;
+        break;
     }
   }
 
-  // ---- Gas refineries ----
+  // ---- Gas refineries (always check, separate from utility) ----
   const gasType = FACTION_GAS[enemyFaction];
   const gasCount = enemyBuildings.filter(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding).length;
   if (gameTime > P.gasTime) {
@@ -3032,84 +3543,32 @@ function updateEnemyAI(dt) {
     }
   }
 
-  // ---- Workers: scale with economy ----
-  const maxWorkers = hasThirdExpansion('enemy') ? Math.min(P.workerCap + 12, 36) : (hasExpansion('enemy') ? Math.min(P.workerCap + 6, 24) : P.workerCap);
-  if (workerCount < maxWorkers && canAffordUnit(workerType, 'enemy')) {
-    const workerBuilding = getBuildingForUnit(workerType, enemyBuildings);
-    if (workerBuilding && workerBuilding.queue.length < 2) {
-      enemyMinerals -= workerDef.cost;
-      workerBuilding.queue.push({ type: workerType, timeLeft: workerDef.buildTime, totalTime: workerDef.buildTime });
-    }
-  }
-
-  // ---- Expansion ----
-  const expansionType = FACTION_EXPANSION[enemyFaction];
-  const enemyHasExpansion = enemyBuildings.some(b => b.type === expansionType);
-  if (!enemyHasExpansion && gameTime > P.expandTime && enemyMinerals >= 400) {
-    enemyMinerals -= 400;
-    const newEExpB = {
-      type: expansionType, x: ARENA_W / 2, y: ENEMY_EXP_Y,
-      hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
-      energy: 0, maxEnergy: 200, isOrbital: false,
-    };
-    enemyBuildings.push(newEExpB);
-    lockWorkerForBuilding('enemy', newEExpB);
-  }
-  // ---- Third Expansion (contested) ----
-  const thirdExpType = FACTION_THIRD_EXPANSION[enemyFaction];
-  const enemyHasThird = enemyBuildings.some(b => b.type === thirdExpType);
-  const playerHasThird = playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isThirdExpansion);
-  if (!enemyHasThird && !playerHasThird && hasExpansion('enemy') && gameTime > P.expandTime + 60 && enemyMinerals >= 400) {
-    enemyMinerals -= 400;
-    const newEThirdB = {
-      type: thirdExpType, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
-      hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 20, queue: [],
-      energy: 0, maxEnergy: 200, isOrbital: false,
-    };
-    enemyBuildings.push(newEThirdB);
-    lockWorkerForBuilding('enemy', newEThirdB);
-  }
-
-  // ---- Defense buildings: build 1-2 near base ----
-  const defenseType = { terran:'bunker', protoss:'photoncannon', zerg:'spinecrawler' }[enemyFaction];
-  const defCount = enemyBuildings.filter(b => b.type === defenseType).length;
-  if (defCount < 2 && gameTime > 30 && enemyMinerals >= BUILDING_DEFS[defenseType].cost) {
-    const bdef = BUILDING_DEFS[defenseType];
-    enemyMinerals -= bdef.cost;
-    const bx = defCount === 0 ? LANE_X[0] : LANE_X[1];
-    const newEDefB = {
-      type: defenseType, x: bx, y: ENEMY_CHOKE_Y,
-      hp: bdef.defenseHp, maxHp: bdef.defenseHp, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-    };
-    enemyBuildings.push(newEDefB);
-    lockWorkerForBuilding('enemy', newEDefB);
-  }
-
-  // ---- Production buildings: difficulty-scaled duplication ----
+  // ---- Production building duplication (scale with economy) ----
   const prodBuildings = getAvailableBuildings('enemy').filter(bt => {
     const bd = BUILDING_DEFS[bt];
     return !bd.supplyCap && !bd.gasBuilding && !bd.isExpansion && !bd.isDefense;
   });
-
   for (const btype of prodBuildings) {
     const bdef = BUILDING_DEFS[btype];
     const count = enemyBuildings.filter(b => b.type === btype).length;
     const gasCost = bdef.gasCost || 0;
     let shouldBuild = false;
+    // Condition-based: build more production when we have idle resources
     if (count === 0) shouldBuild = true;
-    else if (count === 1 && gameTime > P.prodBuilding2) shouldBuild = true;
-    else if (count === 2 && gameTime > P.prodBuilding3) shouldBuild = true;
+    else if (count === 1 && s.prodCount >= 1 && (aiPhase === 'early' || aiPhase === 'mid' || aiPhase === 'late')) shouldBuild = true;
+    else if (count === 2 && (aiPhase === 'mid' || aiPhase === 'late') && s.minerals > 300) shouldBuild = true;
+    else if (count < 4 && aiPhase === 'late' && s.minerals > 400) shouldBuild = true;
     if (shouldBuild && enemyMinerals >= bdef.cost && enemyGas >= gasCost) {
       aiBuildBuilding(btype);
       break;
     }
   }
 
-  // ---- Combat units: difficulty-scaled intelligence ----
+  // ---- Combat units: fill ALL production building queues with weighted picks ----
   const availUnits = getAvailableUnits('enemy');
   const combatUnits = availUnits.filter(u => !UNIT_DEFS[u].worker);
+  const playerComp = s.playerComp;
 
-  // Fill ALL production building queues
   const productionSlots = enemyBuildings.filter(b => {
     if (!b.built || b.queue.length >= P.maxQueue) return false;
     const bdef = BUILDING_DEFS[b.type];
@@ -3117,22 +3576,28 @@ function updateEnemyAI(dt) {
   });
 
   for (const slot of productionSlots) {
-    // Fill up to maxQueue slots per building per tick
     while (slot.queue.length < P.maxQueue) {
       const bdef = BUILDING_DEFS[slot.type];
       let slotUnits = combatUnits.filter(u => bdef.unlocks.includes(u) && canAffordUnit(u, 'enemy'));
-      // Filter by addon for Terran buildings: no addon or reactor = basic units only
-      if (bdef.canAddon && slot.addon !== 'techlab') {
-        slotUnits = slotUnits.filter(u => bdef.reactorUnits && bdef.reactorUnits.includes(u));
+      // Filter by addon for Terran buildings
+      if (bdef.canAddon) {
+        if (slot.addon === 'techlab') {
+          // Tech lab: can build all units
+        } else if (slot.addon === 'reactor') {
+          slotUnits = slotUnits.filter(u => bdef.reactorUnits && bdef.reactorUnits.includes(u));
+        } else {
+          // No addon: only reactor/basic units
+          slotUnits = slotUnits.filter(u => bdef.reactorUnits && bdef.reactorUnits.includes(u));
+        }
       }
       if (slotUnits.length === 0) break;
 
-      // Weighted random pick (difficulty affects weight intelligence)
       const weights = slotUnits.map(u => {
-        if (P.counterWeight === 0) return 1; // Easy: random
+        if (P.counterWeight === 0) return 1;
         return getUnitWeight(u, playerComp);
       });
       const totalWeight = weights.reduce((a,b) => a+b, 0);
+      if (totalWeight <= 0) break;
       let roll = Math.random() * totalWeight;
       let pick = slotUnits[0];
       for (let i = 0; i < slotUnits.length; i++) {
@@ -3204,20 +3669,28 @@ function updateEnemyAI(dt) {
     enemyBase.energy = 50;
     enemyBase.maxEnergy = 200;
   }
-  // ---- AI: Build addons for Terran buildings ----
+  // ---- AI: Build addons for Terran buildings (smart choice) ----
   if (enemyFaction === 'terran') {
     for (const b of enemyBuildings) {
       if (!b.built || b.addon) continue;
       const bdef = BUILDING_DEFS[b.type];
       if (!bdef || !bdef.canAddon) continue;
       if (enemyMinerals >= 50 && enemyGas >= 50) {
-        // AI picks Tech Lab 60% of the time for more unit variety
-        if (Math.random() < 0.6) {
+        // Smart addon choice: ensure at least 1 tech lab per building type, then reactors
+        const sameTypeBuildings = enemyBuildings.filter(eb => eb.type === b.type && eb.built && eb.addon);
+        const hasTechlab = sameTypeBuildings.some(eb => eb.addon === 'techlab');
+        if (!hasTechlab) {
+          // First building of this type: always tech lab for unit access
           b.addon = 'techlab';
           enemyMinerals -= 50; enemyGas -= 25;
-        } else {
+        } else if (aiPhase === 'mid' || aiPhase === 'late') {
+          // Additional buildings: reactor for production speed
           b.addon = 'reactor';
           enemyMinerals -= 50; enemyGas -= 50;
+        } else {
+          // Early game: tech lab for variety
+          b.addon = Math.random() < 0.5 ? 'techlab' : 'reactor';
+          enemyMinerals -= 50; enemyGas -= (b.addon === 'techlab' ? 25 : 50);
         }
       }
     }
@@ -5507,19 +5980,20 @@ function drawProductionPanel() {
       // Collapse arrow
       const arrow = (builtGroup.length > 0 && producible.length > 0) ? (collapsed ? '\u25B6 ' : '\u25BC ') : '';
       ctx.fillText(arrow + bname + countStr, px + 6, y + 8);
-      // Show addon indicator for Terran buildings
+      // Show addon indicators for all Terran buildings in the group
       if (bdef.canAddon && builtGroup.length > 0) {
-        const addon = builtGroup[0].addon;
-        if (addon === 'reactor') {
-          ctx.fillStyle = '#66ff66';
+        const reactorCount = builtGroup.filter(b => b.addon === 'reactor').length;
+        const techlabCount = builtGroup.filter(b => b.addon === 'techlab').length;
+        const noAddonCount = builtGroup.filter(b => !b.addon).length;
+        let addonLabel = '';
+        if (techlabCount > 0) addonLabel += techlabCount + 'TL ';
+        if (reactorCount > 0) addonLabel += reactorCount + 'R ';
+        if (noAddonCount > 0) addonLabel += noAddonCount + '-';
+        if (addonLabel) {
+          ctx.fillStyle = techlabCount > 0 ? '#cc88ff' : '#66ff66';
           ctx.font = '5px monospace';
           ctx.textAlign = 'right';
-          ctx.fillText('R', px + PANEL_W - 20, y + 8);
-        } else if (addon === 'techlab') {
-          ctx.fillStyle = '#cc88ff';
-          ctx.font = '5px monospace';
-          ctx.textAlign = 'right';
-          ctx.fillText('TL', px + PANEL_W - 20, y + 8);
+          ctx.fillText(addonLabel.trim(), px + PANEL_W - 6, y + 8);
         }
       }
       // Queue count on right side
@@ -5615,22 +6089,68 @@ function drawProductionPanel() {
         y += 23;
       }
 
-      // Unit buttons - filter by addon for Terran buildings
+      // Swap addon button for buildings that already have an addon
+      const canSwap = bdef.canAddon && builtGroup.some(b => b.addon && (!b.swapTimer || b.swapTimer <= 0));
+      if (canSwap) {
+        const swapping = builtGroup.some(b => b.swapTimer > 0);
+        if (y > -BTN_H - 5 && y < VIEWPORT_H) {
+          const swapAfford = playerMinerals >= 25 && playerGas >= 25;
+          if (swapping) {
+            // Show swap progress
+            const swapB = builtGroup.find(b => b.swapTimer > 0);
+            const frac = 1 - swapB.swapTimer / 5;
+            ctx.fillStyle = 'rgba(60,40,10,0.9)';
+            ctx.fillRect(px + 4, y, BTN_W, 16);
+            ctx.fillStyle = '#ffaa00';
+            ctx.fillRect(px + 4, y + 12, BTN_W * frac, 3);
+            ctx.fillStyle = '#ffcc44';
+            ctx.font = 'bold 6px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('SWAPPING...', px + PANEL_W/2, y + 10);
+          } else {
+            ctx.fillStyle = swapAfford ? 'rgba(50,40,10,0.9)' : 'rgba(20,20,40,0.6)';
+            ctx.fillRect(px + 4, y, BTN_W, 16);
+            ctx.strokeStyle = swapAfford ? '#ffaa44' : '#444';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px + 4, y, BTN_W, 16);
+            ctx.fillStyle = swapAfford ? '#ffaa44' : '#666';
+            ctx.font = 'bold 6px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('SWAP ADDON 25/25', px + PANEL_W/2, y + 7);
+            ctx.fillStyle = '#888';
+            ctx.font = '5px monospace';
+            ctx.fillText('R\u2194TL (5s)', px + PANEL_W/2, y + 14);
+          }
+        }
+        y += 19;
+      }
+
+      // Unit buttons - filter by addon for Terran buildings (show union of all addons in group)
       let filteredProducible = producible;
       if (bdef.canAddon) {
-        const anyAddon = builtGroup.find(b => b.addon);
-        if (!anyAddon || anyAddon.addon === 'reactor') {
-          // No addon or Reactor: only basic units
+        const hasReactor = builtGroup.some(b => b.addon === 'reactor');
+        const hasTechlab = builtGroup.some(b => b.addon === 'techlab');
+        const hasNoAddon = builtGroup.some(b => !b.addon);
+        if (!hasReactor && !hasTechlab) {
+          // No addons at all: only reactor/basic units
           filteredProducible = producible.filter(u => bdef.reactorUnits && bdef.reactorUnits.includes(u));
+        } else {
+          // Show union of units available across all addon types in the group
+          filteredProducible = producible.filter(u => {
+            if ((hasReactor || hasNoAddon) && bdef.reactorUnits && bdef.reactorUnits.includes(u)) return true;
+            if (hasTechlab && bdef.techlabUnits && bdef.techlabUnits.includes(u)) return true;
+            return false;
+          });
         }
-        // techlab: show all units
       }
       for (const utype of filteredProducible) {
         if (y > VIEWPORT_H + 10) break;
         if (y > -BTN_H - 5) {
           const def = UNIT_DEFS[utype];
           const affordable = canAffordUnit(utype, 'player');
-          drawPanelButton(px + 4, y, utype, def.name, def.cost, affordable, false, false);
+          // Mark tech lab units that need tech lab
+          const needsTL = bdef.canAddon && bdef.techlabUnits && bdef.techlabUnits.includes(utype);
+          drawPanelButton(px + 4, y, utype, def.name + (needsTL ? ' [TL]' : ''), def.cost, affordable, false, false);
         }
         y += BTN_H + 2;
       }
@@ -6059,12 +6579,30 @@ function getPanelButtons() {
         y += 23;
       }
 
-      // Unit buttons - filter by addon
+      // Swap addon button for buildings that already have an addon
+      const canSwap = bdef.canAddon && builtGroup.some(b => b.addon && (!b.swapTimer || b.swapTimer <= 0));
+      if (canSwap) {
+        const swapping = builtGroup.some(b => b.swapTimer > 0);
+        if (!swapping) {
+          buttons.push({ type: '_addon_swap', x: px + 4, y, w: BTN_W, h: 16, builtGroup, btype });
+        }
+        y += 19;
+      }
+
+      // Unit buttons - filter by addon (show union of all addons in group)
       let filteredProducible = producible;
       if (bdef.canAddon) {
-        const anyAddon = builtGroup.find(b => b.addon);
-        if (!anyAddon || anyAddon.addon === 'reactor') {
+        const hasReactor = builtGroup.some(b => b.addon === 'reactor');
+        const hasTechlab = builtGroup.some(b => b.addon === 'techlab');
+        const hasNoAddon = builtGroup.some(b => !b.addon);
+        if (!hasReactor && !hasTechlab) {
           filteredProducible = producible.filter(u => bdef.reactorUnits && bdef.reactorUnits.includes(u));
+        } else {
+          filteredProducible = producible.filter(u => {
+            if ((hasReactor || hasNoAddon) && bdef.reactorUnits && bdef.reactorUnits.includes(u)) return true;
+            if (hasTechlab && bdef.techlabUnits && bdef.techlabUnits.includes(u)) return true;
+            return false;
+          });
         }
       }
       for (const utype of filteredProducible) {
@@ -6183,6 +6721,18 @@ function handleInput(x, y) {
         playerGas -= 25;
         target.addon = 'techlab';
         spawnParticle(target.x, target.y, '#cc88ff', 10);
+        return;
+      }
+      // Swap addon (R<->TL) — costs 25/25, takes 5 seconds
+      if (btn.type === '_addon_swap') {
+        if (playerMinerals < 25 || playerGas < 25) return;
+        const target = btn.builtGroup.find(b => b.addon && (!b.swapTimer || b.swapTimer <= 0));
+        if (!target) return;
+        playerMinerals -= 25;
+        playerGas -= 25;
+        target.swapTimer = 5; // 5 second swap time
+        target.swapTarget = target.addon === 'reactor' ? 'techlab' : 'reactor';
+        spawnParticle(target.x, target.y, '#ffaa44', 8);
         return;
       }
       // Unit-specific upgrade research
