@@ -383,53 +383,108 @@ function posBlocked(px, py, unitR) {
   return false;
 }
 
+// Find the nearest obstacle edge and the push-out normal for a point
+function nearestObstacleInfo(px, py, unitR) {
+  let minPen = Infinity, bestNx = 0, bestNy = 0, nearWall = false;
+  const r = unitR || 0;
+  for (const obs of obstacles) {
+    // Expanded rect edges
+    const left = obs.x - r, right = obs.x + obs.w + r;
+    const top = obs.y - r, bottom = obs.y + obs.h + r;
+    // Check if inside expanded rect
+    if (px > left && px < right && py > top && py < bottom) {
+      // Find smallest penetration axis
+      const penL = px - left, penR = right - px;
+      const penT = py - top, penB = bottom - py;
+      const minH = penL < penR ? { pen: penL, nx: -1, ny: 0 } : { pen: penR, nx: 1, ny: 0 };
+      const minV = penT < penB ? { pen: penT, nx: 0, ny: -1 } : { pen: penB, nx: 0, ny: 1 };
+      const best = minH.pen < minV.pen ? minH : minV;
+      if (best.pen < minPen) {
+        minPen = best.pen;
+        bestNx = best.nx;
+        bestNy = best.ny;
+      }
+    }
+    // Also check proximity for steering (within 8px of wall)
+    const margin = 8;
+    const closeDist = margin + r;
+    if (px > obs.x - closeDist && px < obs.x + obs.w + closeDist &&
+        py > obs.y - closeDist && py < obs.y + obs.h + closeDist) {
+      nearWall = true;
+    }
+  }
+  return { penetration: minPen < Infinity ? minPen : 0, nx: bestNx, ny: bestNy, nearWall };
+}
+
 function moveWithSlide(unit, vx, vy, dt) {
   if (unit.isAir) {
     unit.x += vx * dt;
     unit.y += vy * dt;
     return;
   }
+
+  // Eject from obstacles if somehow inside one (pushed by separation, spawn, etc.)
+  const info = nearestObstacleInfo(unit.x, unit.y, unit.r);
+  if (info.penetration > 0) {
+    unit.x += info.nx * (info.penetration + 1);
+    unit.y += info.ny * (info.penetration + 1);
+  }
+
   const nx = unit.x + vx * dt;
   const ny = unit.y + vy * dt;
   if (!posBlocked(nx, ny, unit.r)) {
     unit.x = nx;
     unit.y = ny;
   } else {
-    // Try sliding on X axis only
-    const sx = unit.x + vx * dt;
-    const xOk = !posBlocked(sx, unit.y, unit.r);
-    if (xOk) unit.x = sx;
-    // Try sliding on Y axis only
-    const sy = unit.y + vy * dt;
-    const yOk = !posBlocked(unit.x, sy, unit.r);
-    if (yOk) unit.y = sy;
-    // If fully stuck, try escape directions — prefer directions toward goal
-    if (!xOk && !yOk) {
-      const speed = Math.sqrt(vx*vx + vy*vy) * dt;
-      const goalX = unit.x + vx * dt * 10; // far target direction
-      const goalY = unit.y + vy * dt * 10;
-      // 12 escape directions sorted by how well they move toward the goal
-      const angles = [];
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * Math.PI * 2;
-        angles.push({ dx: Math.cos(a), dy: Math.sin(a) });
-      }
-      // Sort by distance to goal after moving
-      angles.sort((a, b) => {
-        const ax = unit.x + a.dx * speed, ay = unit.y + a.dy * speed;
-        const bx = unit.x + b.dx * speed, by = unit.y + b.dy * speed;
-        const da = (ax-goalX)*(ax-goalX) + (ay-goalY)*(ay-goalY);
-        const db = (bx-goalX)*(bx-goalX) + (by-goalY)*(by-goalY);
-        return da - db;
-      });
-      for (const d of angles) {
-        const tx = unit.x + d.dx * speed;
-        const ty = unit.y + d.dy * speed;
-        if (!posBlocked(tx, ty, unit.r)) {
-          unit.x = tx;
-          unit.y = ty;
-          break;
+    // Wall-normal sliding: find what we're hitting and slide along the wall
+    const hitInfo = nearestObstacleInfo(nx, ny, unit.r);
+    if (hitInfo.penetration > 0) {
+      // Project velocity onto wall surface (perpendicular to wall normal)
+      const wallTx = -hitInfo.ny, wallTy = hitInfo.nx; // tangent along wall
+      const dot = vx * wallTx + vy * wallTy;
+      const slideX = unit.x + wallTx * dot * dt;
+      const slideY = unit.y + wallTy * dot * dt;
+      if (!posBlocked(slideX, slideY, unit.r)) {
+        unit.x = slideX;
+        unit.y = slideY;
+      } else {
+        // Try reduced slide (corner case)
+        const halfX = unit.x + wallTx * dot * dt * 0.5;
+        const halfY = unit.y + wallTy * dot * dt * 0.5;
+        if (!posBlocked(halfX, halfY, unit.r)) {
+          unit.x = halfX;
+          unit.y = halfY;
+        } else {
+          // Last resort: 16-direction escape toward goal
+          const speed = Math.sqrt(vx*vx + vy*vy) * dt;
+          if (speed > 0.1) {
+            const goalAngle = Math.atan2(vy, vx);
+            // Try angles starting near the goal direction, fanning out
+            for (let i = 1; i <= 8; i++) {
+              for (const sign of [1, -1]) {
+                const a = goalAngle + sign * (i / 8) * Math.PI;
+                const tx = unit.x + Math.cos(a) * speed;
+                const ty = unit.y + Math.sin(a) * speed;
+                if (!posBlocked(tx, ty, unit.r)) {
+                  unit.x = tx;
+                  unit.y = ty;
+                  // Clamp and return early
+                  unit.x = Math.max(25, Math.min(ARENA_W - 25, unit.x));
+                  unit.y = Math.max(25, Math.min(GAME_H - 25, unit.y));
+                  return;
+                }
+              }
+            }
+          }
         }
+      }
+    } else {
+      // Blocked by something else (arena edge?), try axis slides
+      const sx = unit.x + vx * dt;
+      if (!posBlocked(sx, unit.y, unit.r)) unit.x = sx;
+      else {
+        const sy = unit.y + vy * dt;
+        if (!posBlocked(unit.x, sy, unit.r)) unit.y = sy;
       }
     }
   }
@@ -2420,6 +2475,29 @@ function updateGame(dt) {
       if (unit.type === 'siegetank' && unit.siegeMode) {
         unit.siegeTimer += dt;
         if (unit.siegeTimer > 3) { unit.siegeMode = false; unit.siegeTimer = 0; }
+      }
+    }
+  }
+
+  // ---- Wall Avoidance Steering ----
+  // Gently push ground units away from nearby walls to prevent crowding
+  for (const u of units) {
+    if (u.dead || u.worker || u.isAir) continue;
+    for (const obs of obstacles) {
+      const margin = u.r + 6;
+      // Find closest point on obstacle rect to unit
+      const cx = Math.max(obs.x, Math.min(obs.x + obs.w, u.x));
+      const cy = Math.max(obs.y, Math.min(obs.y + obs.h, u.y));
+      const dx = u.x - cx, dy = u.y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < margin * margin && d2 > 0.1) {
+        const d = Math.sqrt(d2);
+        const push = (margin - d) * 2 * dt;
+        const px = (dx / d) * push, py = (dy / d) * push;
+        if (!posBlocked(u.x + px, u.y + py, u.r)) {
+          u.x += px;
+          u.y += py;
+        }
       }
     }
   }
