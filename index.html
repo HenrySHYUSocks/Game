@@ -1062,9 +1062,12 @@ function spawnUnit(defName, x, y, team) {
 function lockWorkerForBuilding(team, building) {
   const faction = team === 'player' ? playerFaction : enemyFaction;
   if (faction === 'zerg') {
-    // Zerg: consume a drone
+    // Zerg: consume a drone (morph into building)
     const drone = units.find(u => !u.dead && u.team === team && u.worker);
     if (drone) {
+      // Subtract supply before marking dead so cleanup doesn't double-subtract
+      if (team === 'player') playerSupply -= (drone.supply || 1);
+      else enemySupply -= (drone.supply || 1);
       drone.hp = 0;
       drone.dead = true;
       spawnParticle(drone.x, drone.y, '#dd6644', 8);
@@ -2906,7 +2909,7 @@ const AI_PARAMS = {
 // ---- Faction-specific build orders ----
 const AI_BUILD_ORDERS = {
   terran: [
-    { condition: (s) => s.workerCount < 6, action: 'worker' },
+    { condition: (s) => s.workerCount < 8, action: 'worker' },
     { condition: (s) => s.supplyHeadroom <= 2 && s.pendingSupply === 0, action: 'supply' },
     { condition: (s) => s.workerCount >= 6 && !s.hasGas && s.minerals >= 75, action: 'gas' },
     { condition: (s) => s.workerCount >= 6 && s.prodCount === 0, action: 'barracks' },
@@ -2918,7 +2921,7 @@ const AI_BUILD_ORDERS = {
     { condition: (s) => true, action: 'done' },
   ],
   protoss: [
-    { condition: (s) => s.workerCount < 6, action: 'worker' },
+    { condition: (s) => s.workerCount < 8, action: 'worker' },
     { condition: (s) => s.supplyHeadroom <= 2 && s.pendingSupply === 0, action: 'supply' },
     { condition: (s) => s.workerCount >= 6 && !s.hasGas && s.minerals >= 75, action: 'gas' },
     { condition: (s) => s.workerCount >= 6 && s.prodCount === 0, action: 'gateway' },
@@ -2930,7 +2933,7 @@ const AI_BUILD_ORDERS = {
     { condition: (s) => true, action: 'done' },
   ],
   zerg: [
-    { condition: (s) => s.workerCount < 6, action: 'worker' },
+    { condition: (s) => s.workerCount < 8, action: 'worker' },
     { condition: (s) => s.supplyHeadroom <= 2 && s.pendingSupply === 0, action: 'supply' },
     { condition: (s) => s.workerCount >= 5 && s.prodCount === 0, action: 'pool' },
     { condition: (s) => s.workerCount >= 6 && !s.hasGas && s.minerals >= 75, action: 'gas' },
