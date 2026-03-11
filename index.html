@@ -1347,12 +1347,10 @@ function findTarget(unit) {
     return best;
   }
 
-  // Priority-weighted target selection (enhanced for AI units)
+  // Priority-weighted target selection (same logic for player and AI units)
   let best = null;
   let bestScore = -Infinity;
   const currentTarget = unit.target;
-  const isAIUnit = unit.team === 'enemy';
-  const microEnabled = isAIUnit && AI_PARAMS[aiDifficulty].microEnabled;
 
   for (const u of units) {
     if (u.dead || u.team === unit.team) continue;
@@ -1367,26 +1365,6 @@ function findTarget(unit) {
     if (u.worker) score += 20;                       // prefer workers
     if (u === currentTarget) score += 25;            // target stickiness
     if (u._focusCount > 0) score += Math.min(u._focusCount * 5, 15); // allies focusing
-
-    // Enhanced AI targeting: focus fire and threat assessment
-    if (microEnabled) {
-      // Prefer killing blows (target we can finish off)
-      if (u.hp <= unit.dmg * 2) score += 25;
-      if (u.hp <= unit.dmg * 1) score += 15; // extra bonus for guaranteed kills
-      // Prefer high DPS threats
-      const threatDps = u.dmg / Math.max(0.3, u.atkSpeed);
-      score += Math.min(threatDps * 0.6, 20);
-      // Prefer non-workers in combat
-      if (!u.worker) score += 10;
-      // Prioritize splash damage dealers (siege tanks, colossi, high templar)
-      if (u.type === 'siegetank' || u.type === 'colossus' || u.type === 'hightemplar') score += 15;
-      // Prioritize healers
-      if (u.healer) score += 12;
-      // Penalize heavily armored targets when we do low damage
-      if (u.hp > unit.dmg * 12) score -= 10;
-      // Prefer targets that are already being focused by allies (snowball effect)
-      if (u._focusCount >= 2 && u.hp < u.maxHp * 0.5) score += 10;
-    }
 
     if (score > bestScore) { bestScore = score; best = u; }
   }
@@ -2548,19 +2526,11 @@ function updateGame(dt) {
             }
           }
         }
-        // Ranged kiting: back up if enemy is too close (stutter-step)
+        // Ranged kiting: back up if enemy is too close (same for player and AI units)
         if (effectiveRange > 50 && d < effectiveRange * 0.45 && effectiveSpeed > 0 && !unit.siegeMode) {
           const awayAngle = Math.atan2(unit.y - target.y, unit.x - target.x);
           const kiteSpeed = effectiveSpeed * 50 * 0.6;
           moveWithSlide(unit, Math.cos(awayAngle) * kiteSpeed, Math.sin(awayAngle) * kiteSpeed, dt);
-        }
-        // AI micro kiting: ranged enemy units stutter-step away when on attack cooldown
-        else if (unit.team === 'enemy' && unit._microKite && effectiveSpeed > 0 && unit.atkTimer > 0) {
-          const kx = unit._microKiteX || unit.x;
-          const ky = unit._microKiteY || unit.y;
-          const dir = getSmartDirection(unit, kx, ky);
-          const kiteSpeed = effectiveSpeed * 50 * 0.8;
-          moveWithSlide(unit, dir.dx * kiteSpeed, dir.dy * kiteSpeed, dt);
         }
       } else {
         // Zealot charge: burst forward
@@ -2896,12 +2866,9 @@ const AI_PARAMS = {
     maxQueue: 5, supplyBuffer: 8,
     counterWeight: 6,
     incomeBonus: 0,
-    microEnabled: true,
+    microEnabled: false, // same auto-combat as player
     groupBeforeAttack: true,
-    microSplitEnabled: true,
     retreatEnabled: true,
-    harassEnabled: false,
-    workerPullDefense: true,
     supplyLookahead: true,
     phaseWeights: { workerW: 1.3, armyW: 1.2, techW: 1.0, expandW: 0.9, defenseW: 1.0 },
   },
@@ -2912,12 +2879,9 @@ const AI_PARAMS = {
     maxQueue: 6, supplyBuffer: 10,
     counterWeight: 10,
     incomeBonus: 0,
-    microEnabled: true,
+    microEnabled: false, // same auto-combat as player
     groupBeforeAttack: true,
-    microSplitEnabled: true,
     retreatEnabled: true,
-    harassEnabled: true,
-    workerPullDefense: true,
     supplyLookahead: true,
     phaseWeights: { workerW: 1.5, armyW: 1.5, techW: 1.2, expandW: 1.0, defenseW: 1.2 },
   },
@@ -3265,142 +3229,12 @@ function getUnitWeight(unitType, playerComp) {
   return Math.max(0, weight);
 }
 
-// ---- AI Micro controller: kiting, focus fire, splitting, spell caster positioning ----
+// ---- AI Micro controller: DISABLED - AI units use same auto-combat as player units ----
+// AI units use identical findTarget(), auto-kiting, and auto-surround logic as player units.
+// No enhanced focus fire, no stutter-step micro, no splash splitting, no spell caster positioning.
+// The AI wins through better macro decisions, not superhuman unit control.
 function updateAIMicro(dt) {
-  const P = AI_PARAMS[aiDifficulty];
-  if (!P.microEnabled) return;
-
-  aiMicroTimer -= dt;
-  if (aiMicroTimer > 0) return;
-  aiMicroTimer = 0.08; // micro decisions every 80ms (faster reactions)
-
-  const enemyCombatUnits = units.filter(u => !u.dead && u.team === 'enemy' && !u.worker);
-  const playerCombatUnits = units.filter(u => !u.dead && u.team === 'player' && !u.worker);
-  const playerAllUnits = units.filter(u => !u.dead && u.team === 'player');
-  if (playerAllUnits.length === 0) return;
-
-  // Detect splash threats from player
-  let playerSplashUnits = [];
-  if (P.microSplitEnabled) {
-    playerSplashUnits = playerCombatUnits.filter(u => {
-      const def = UNIT_DEFS[u.type];
-      return def && (def.splash > 0 || u.type === 'hightemplar' || u.type === 'colossus' || u.type === 'siegetank');
-    });
-  }
-
-  for (const unit of enemyCombatUnits) {
-    // Spell caster positioning: stay behind army
-    if (unit.type === 'hightemplar' || unit.type === 'infestor' || unit.type === 'raven') {
-      // Find nearest friendly non-caster combat unit
-      let nearFriendly = null, nearFD = Infinity;
-      for (const f of enemyCombatUnits) {
-        if (f === unit || f.type === 'hightemplar' || f.type === 'infestor' || f.type === 'raven') continue;
-        const d = dist(unit, f);
-        if (d < nearFD) { nearFD = d; nearFriendly = f; }
-      }
-      // Find nearest enemy
-      let nearEnemy = null, nearED = Infinity;
-      for (const e of playerAllUnits) {
-        const d = dist(unit, e);
-        if (d < nearED) { nearED = d; nearEnemy = e; }
-      }
-      // Position behind army: if enemy is closer than friendlies, retreat
-      if (nearEnemy && nearED < 120) {
-        unit._microKite = true;
-        unit._microKiteX = unit.x + (unit.x - nearEnemy.x) * 0.6;
-        unit._microKiteY = unit.y + (unit.y - nearEnemy.y) * 0.6;
-      } else {
-        unit._microKite = false;
-      }
-      continue;
-    }
-
-    if (unit.type === 'observer' || unit.type === 'overseer') continue;
-    if (unit.siegeMode) continue;
-    if (unit.fungalRootTimer > 0) continue;
-
-    const isRanged = unit.range > 50;
-
-    // --- Splash splitting: spread out when near enemy splash units ---
-    if (P.microSplitEnabled && playerSplashUnits.length > 0) {
-      let nearestSplash = null, nearestSplashDist = Infinity;
-      for (const s of playerSplashUnits) {
-        const d = dist(unit, s);
-        if (d < nearestSplashDist) { nearestSplashDist = d; nearestSplash = s; }
-      }
-      // Split when splash unit is close enough to threaten
-      if (nearestSplash && nearestSplashDist < 180) {
-        // Count nearby friendly units (clumping detection)
-        let nearbyFriendlies = 0;
-        for (const f of enemyCombatUnits) {
-          if (f === unit) continue;
-          if (dist(unit, f) < 25) nearbyFriendlies++;
-        }
-        if (nearbyFriendlies >= 2) {
-          // Spread perpendicular to splash threat
-          const angle = Math.atan2(unit.y - nearestSplash.y, unit.x - nearestSplash.x);
-          const perpAngle = angle + (Math.random() > 0.5 ? Math.PI/2 : -Math.PI/2);
-          unit._microKite = true;
-          unit._microKiteX = unit.x + Math.cos(perpAngle) * 30;
-          unit._microKiteY = unit.y + Math.sin(perpAngle) * 30;
-          continue;
-        }
-      }
-    }
-
-    // --- Melee micro: surround and body-block ---
-    if (!isRanged) {
-      // Find nearest enemy
-      let nearestEnemy = null, nearestDist = Infinity;
-      for (const e of playerCombatUnits) {
-        const d = dist(unit, e);
-        if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
-      }
-      if (nearestEnemy && nearestDist < 100) {
-        // Check if target is a ranged unit trying to kite us - intercept path
-        if (nearestEnemy.range > 50 && nearestDist > unit.range + 10) {
-          // Predict where the kiter is going and intercept
-          const predX = nearestEnemy.x + (nearestEnemy.x - unit.x) * 0.3;
-          const predY = nearestEnemy.y + (nearestEnemy.y - unit.y) * 0.3;
-          unit._microKite = true;
-          unit._microKiteX = predX;
-          unit._microKiteY = predY;
-          continue;
-        }
-      }
-      unit._microKite = false;
-      continue;
-    }
-
-    // --- Ranged micro: stutter-step kiting ---
-    // Find nearest enemy
-    let nearestEnemy = null, nearestDist = Infinity;
-    for (const e of playerCombatUnits.length > 0 ? playerCombatUnits : playerAllUnits) {
-      const d = dist(unit, e);
-      if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
-    }
-    if (!nearestEnemy) continue;
-
-    // Stutter-step: kite when attack is on cooldown and enemy is close
-    if (unit.atkTimer > 0 && nearestDist < unit.range * 0.7) {
-      const enemyIsRanged = nearestEnemy.range > 50;
-      if (!enemyIsRanged) {
-        // Kite away from melee - more aggressively
-        unit._microKite = true;
-        unit._microKiteX = unit.x + (unit.x - nearestEnemy.x) * 0.7;
-        unit._microKiteY = unit.y + (unit.y - nearestEnemy.y) * 0.7;
-      } else if (nearestDist < unit.range * 0.4) {
-        // Even kite from ranged if they're very close (maintain range advantage)
-        unit._microKite = true;
-        unit._microKiteX = unit.x + (unit.x - nearestEnemy.x) * 0.4;
-        unit._microKiteY = unit.y + (unit.y - nearestEnemy.y) * 0.4;
-      } else {
-        unit._microKite = false;
-      }
-    } else {
-      unit._microKite = false;
-    }
-  }
+  // No-op: AI units behave identically to player units in combat
 }
 
 // ---- AI Army grouping: wait for army to mass before attacking ----
@@ -3553,28 +3387,7 @@ function updateEnemyAI(dt) {
   // ---- Stance: defend when base is threatened, attack via grouping system ----
   if (s.nearBase >= 2 || s.baseHP < s.baseMaxHP * 0.7) {
     enemyStance = 'defend';
-    // Worker pull defense: if under heavy attack and low on army, pull workers to fight
-    if (P.workerPullDefense && s.nearBase >= 3 && s.combatCount < s.nearBase) {
-      const enemyWorkers = units.filter(u => !u.dead && u.team === 'enemy' && u.worker && !u._pulledToDefend);
-      const pullCount = Math.min(Math.floor(enemyWorkers.length * 0.4), s.nearBase - s.combatCount);
-      for (let i = 0; i < pullCount && i < enemyWorkers.length; i++) {
-        const w = enemyWorkers[i];
-        w._pulledToDefend = true;
-        // Make worker move toward the attackers
-        w.miningState = 'rally';
-        w.rallyX = ARENA_W / 2;
-        w.rallyY = ENEMY_CHOKE_Y;
-      }
-    }
   } else {
-    // Un-pull workers once threat is gone
-    if (P.workerPullDefense) {
-      const pulledWorkers = units.filter(u => !u.dead && u.team === 'enemy' && u.worker && u._pulledToDefend);
-      for (const w of pulledWorkers) {
-        w._pulledToDefend = false;
-        w.miningState = 'idle';
-      }
-    }
     if (!P.groupBeforeAttack) {
       // Simple attack logic for easy AI
       if (s.enemyArmy >= s.playerArmy * P.attackThreshold || gameTime - aiLastAttackTime > P.attackCooldown) {
@@ -3678,10 +3491,11 @@ function updateEnemyAI(dt) {
     { name: 'defense', score: aiDefenseUtility(s) },
   ].sort((a, b) => b.score - a.score);
 
-  // Execute top 2-3 actions if they score above threshold
+  // Execute top 3-4 actions if they score above threshold (more actions = better macro)
+  const maxActions = aiDifficulty === 'impossible' ? 4 : 3;
   let actionsExecuted = 0;
   for (const action of actions) {
-    if (action.score < 15 || actionsExecuted >= 3) break;
+    if (action.score < 15 || actionsExecuted >= maxActions) break;
 
     switch (action.name) {
       case 'supply': {
