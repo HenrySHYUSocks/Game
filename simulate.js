@@ -26,67 +26,104 @@ const FACTION_COLORS = {
   zerg: { primary: '#ff4444', dark: '#662222', light: '#ff8888' }
 };
 
-// ---- Building Definitions ----
+// ---- Building Definitions (synced from index.html) ----
 const BUILDING_DEFS = {
-  _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:10 },
-  commandcenter: { faction:'terran', cost:400, buildTime:15, name:'CC', unlocks:['scv'], r:20, supplyCap:11, isExpansion:true },
-  nexus:         { faction:'protoss', cost:400, buildTime:15, name:'Nexus', unlocks:['probe'], r:20, supplyCap:11, isExpansion:true },
-  hatchery:      { faction:'zerg', cost:300, buildTime:15, name:'Hatchery', unlocks:['drone'], r:20, supplyCap:11, isExpansion:true },
-  supplydepot: { faction:'terran', cost:100, buildTime:5, name:'Depot', unlocks:[], r:14, supplyCap:10 },
-  pylon:       { faction:'protoss', cost:100, buildTime:5, name:'Pylon', unlocks:[], r:14, supplyCap:10 },
-  overlord:    { faction:'zerg', cost:100, buildTime:5, name:'Overlord', unlocks:[], r:14, supplyCap:10 },
+  _base:     { faction:'all', cost:0, buildTime:0, name:'Base', unlocks:[], r:BASE_R, supplyCap:15 },
+  commandcenter: { faction:'terran', cost:400, buildTime:15, name:'CC', unlocks:['scv'], r:20, supplyCap:15, isExpansion:true },
+  nexus:         { faction:'protoss', cost:400, buildTime:15, name:'Nexus', unlocks:['probe'], r:20, supplyCap:15, isExpansion:true },
+  hatchery:      { faction:'zerg', cost:300, buildTime:15, name:'Hatchery', unlocks:['drone'], r:20, supplyCap:6, isExpansion:true },
+  supplydepot: { faction:'terran', cost:100, buildTime:5, name:'Depot', unlocks:[], r:14, supplyCap:8 },
+  pylon:       { faction:'protoss', cost:100, buildTime:5, name:'Pylon', unlocks:[], r:14, supplyCap:8 },
+  overlord:    { faction:'zerg', cost:100, buildTime:5, name:'Overlord', unlocks:[], r:14, supplyCap:8 },
   refinery:    { faction:'terran', cost:75, buildTime:5, name:'Refinery', unlocks:[], r:14, gasBuilding:true },
   assimilator: { faction:'protoss', cost:75, buildTime:5, name:'Assimilator', unlocks:[], r:14, gasBuilding:true },
-  extractor:   { faction:'zerg', cost:75, buildTime:5, name:'Extractor', unlocks:[], r:14, gasBuilding:true },
-  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','medic'], r:18 },
-  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','ghost'], requires:'barracks', r:18 },
-  starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','battlecruiser'], requires:'factory', r:18 },
-  gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','sentry'], r:18 },
-  robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robo Bay', unlocks:['immortal','hightemplar'], requires:'gateway', r:18 },
-  fleetbeacon: { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Fleet Beacon', unlocks:['phoenix','voidray','carrier'], requires:'robo', r:18 },
-  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawn Pool', unlocks:['zergling','roach','baneling'], r:18 },
-  den:       { faction:'zerg', cost:100, gasCost:100, buildTime:12, name:'Hydra Den', unlocks:['hydralisk','ultralisk'], requires:'pool', r:18 },
-  spire:     { faction:'zerg', cost:200, gasCost:200, buildTime:10, name:'Spire', unlocks:['mutalisk','corruptor','broodlord'], requires:'den', r:18 },
+  extractor:   { faction:'zerg', cost:25, buildTime:5, name:'Extractor', unlocks:[], r:14, gasBuilding:true },
+  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper','ghost'], r:18 },
+  factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','thor'], requires:'barracks', r:18 },
+  starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','raven','battlecruiser'], requires:'factory', r:18 },
+  ghostacademy: { faction:'terran', cost:150, gasCost:50, buildTime:8, name:'Ghost Academy', unlocks:[], r:16, requires:'barracks', isTech:true },
+  armory:       { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Armory', unlocks:[], r:16, requires:'factory', isTech:true },
+  fusioncore:   { faction:'terran', cost:150, gasCost:150, buildTime:10, name:'Fusion Core', unlocks:[], r:16, requires:'starport', isTech:true },
+  gateway:   { faction:'protoss', cost:150, buildTime:8, name:'Gateway', unlocks:['zealot','stalker','sentry','hightemplar','darktemplar'], r:18 },
+  robo:      { faction:'protoss', cost:200, buildTime:12, name:'Robotics', unlocks:['immortal','colossus','observer'], requires:'gateway', r:18 },
+  stargate:  { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Stargate', unlocks:['phoenix','voidray'], requires:'gateway', r:18 },
+  fleetbeacon: { faction:'protoss', cost:300, gasCost:200, buildTime:10, name:'Fleet Beacon', unlocks:['carrier'], requires:'stargate', r:18 },
+  twilightcouncil: { faction:'protoss', cost:150, gasCost:100, buildTime:10, name:'Twilight Council', unlocks:[], r:16, requires:'gateway', isTech:true },
+  templararchives: { faction:'protoss', cost:150, gasCost:200, buildTime:10, name:'Templar Archives', unlocks:[], r:16, requires:'twilightcouncil', isTech:true },
+  darkshrine:      { faction:'protoss', cost:100, gasCost:250, buildTime:12, name:'Dark Shrine', unlocks:[], r:16, requires:'twilightcouncil', isTech:true },
+  roboticsbay:     { faction:'protoss', cost:200, gasCost:200, buildTime:10, name:'Robotics Bay', unlocks:[], r:16, requires:'robo', isTech:true },
+  pool:      { faction:'zerg', cost:200, buildTime:8, name:'Spawning Pool', unlocks:['zergling','baneling','queen'], r:18 },
+  den:       { faction:'zerg', cost:100, gasCost:100, buildTime:12, name:'Hydralisk Den', unlocks:['hydralisk','overseer'], requires:'pool', r:18 },
+  spire:     { faction:'zerg', cost:200, gasCost:200, buildTime:10, name:'Spire', unlocks:['mutalisk','corruptor'], requires:'den', r:18 },
+  lair:             { faction:'zerg', cost:150, gasCost:100, buildTime:12, name:'Lair', unlocks:[], r:16, requires:'pool', isTech:true },
+  hive:             { faction:'zerg', cost:200, gasCost:150, buildTime:14, name:'Hive', unlocks:[], r:16, requires:'lair', isTech:true },
+  roachwarren:      { faction:'zerg', cost:150, buildTime:8, name:'Roach Warren', unlocks:[], r:16, requires:'pool', isTech:true },
+  banelingnest:     { faction:'zerg', cost:100, gasCost:50, buildTime:8, name:'Baneling Nest', unlocks:[], r:16, requires:'pool', isTech:true },
+  infestationpit:   { faction:'zerg', cost:100, gasCost:100, buildTime:8, name:'Infestation Pit', unlocks:[], r:16, requires:'lair', isTech:true },
+  ultraliskcavern:  { faction:'zerg', cost:150, gasCost:200, buildTime:10, name:'Ultra Cavern', unlocks:[], r:16, requires:'hive', isTech:true },
+  greaterspire:     { faction:'zerg', cost:100, gasCost:150, buildTime:12, name:'Greater Spire', unlocks:[], r:16, requires:'hive', isTech:true },
+};
+
+// Unit tech requirements
+const UNIT_REQUIRES = {
+  ghost: 'ghostacademy', thor: 'armory', battlecruiser: 'fusioncore',
+  hightemplar: 'templararchives', darktemplar: 'darkshrine', colossus: 'roboticsbay',
+  roach: 'roachwarren', baneling: 'banelingnest', hydralisk: 'lair',
+  ultralisk: 'ultraliskcavern', infestor: 'infestationpit',
+  mutalisk: 'lair', corruptor: 'lair', broodlord: 'greaterspire', queen: 'pool',
 };
 
 const FACTION_SUPPLY = { terran:'supplydepot', protoss:'pylon', zerg:'overlord' };
 const FACTION_GAS = { terran:'refinery', protoss:'assimilator', zerg:'extractor' };
 const FACTION_EXPANSION = { terran:'commandcenter', protoss:'nexus', zerg:'hatchery' };
 const FACTION_BUILDINGS = {
-  terran: ['supplydepot','refinery','commandcenter','barracks','factory','starport'],
-  protoss: ['pylon','assimilator','nexus','gateway','robo','fleetbeacon'],
-  zerg: ['overlord','extractor','hatchery','pool','den','spire'],
+  terran: ['supplydepot','refinery','commandcenter','barracks','factory','starport','ghostacademy','armory','fusioncore'],
+  protoss: ['pylon','assimilator','nexus','gateway','robo','stargate','fleetbeacon','twilightcouncil','templararchives','darkshrine','roboticsbay'],
+  zerg: ['overlord','extractor','hatchery','pool','den','spire','lair','hive','roachwarren','banelingnest','infestationpit','ultraliskcavern','greaterspire'],
 };
 
-// ---- Unit Definitions ----
+// ---- Unit Definitions (SC2 Wings of Liberty — synced from index.html) ----
 const UNIT_DEFS = {
-  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:195, dmg:31, speed:1.3, range:120, atkSpeed:0.8, count:3, r:8,  name:'Marine', buildTime:3 },
-  marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:450, dmg:55, speed:1.0, range:90,  atkSpeed:1.0, count:2, r:10, name:'Marauder', buildTime:4 },
-  medic:        { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.2, range:100, atkSpeed:1.5, count:2, r:8,  name:'Medic', healer:true, healAmt:40, buildTime:3 },
-  siegetank:    { faction:'terran', cost:150, gasCost:125, supply:3, hp:600, dmg:120,speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, name:'Siege Tank', splash:30, buildTime:6 },
-  ghost:        { faction:'terran', cost:150, gasCost:125, supply:2, hp:350, dmg:80, speed:1.1, range:140, atkSpeed:1.2, count:1, r:9,  name:'Ghost', buildTime:5 },
-  scv:          { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:200, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  name:'SCV', worker:true, mineRate:0.3, buildTime:2 },
-  viking:       { faction:'terran', cost:150, gasCost:75,  supply:2, hp:280, dmg:40, speed:1.3, range:120, atkSpeed:0.9, count:1, r:10, name:'Viking', buildTime:5, isAir:true },
-  medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:200, dmg:0,  speed:1.4, range:100, atkSpeed:1.5, count:1, r:10, name:'Medivac', healer:true, healAmt:30, buildTime:5, isAir:true },
-  battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:800, dmg:70, speed:0.6, range:130, atkSpeed:1.0, count:1, r:16, name:'Battlecruiser', splash:20, buildTime:10, isAir:true },
-  zealot:       { faction:'protoss', cost:100, gasCost:0,   supply:2, hp:530, dmg:56, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, name:'Zealot', buildTime:3 },
-  stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:390, dmg:53, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  name:'Stalker', buildTime:4 },
-  sentry:       { faction:'protoss', cost:50,  gasCost:100, supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  name:'Sentry', shield:true, shieldAmt:140, buildTime:3 },
-  hightemplar:  { faction:'protoss', cost:150, gasCost:150, supply:2, hp:280, dmg:180,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  name:'High Templar', splash:55, buildTime:6 },
-  immortal:     { faction:'protoss', cost:275, gasCost:100, supply:4, hp:650, dmg:85, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, name:'Immortal', buildTime:5 },
-  probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
-  phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:250, dmg:35, speed:1.6, range:110, atkSpeed:0.8, count:1, r:9,  name:'Phoenix', buildTime:5, isAir:true },
-  voidray:      { faction:'protoss', cost:250, gasCost:150, supply:4, hp:300, dmg:50, speed:0.9, range:130, atkSpeed:1.2, count:1, r:11, name:'Void Ray', buildTime:7, isAir:true },
-  carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:600, dmg:40, speed:0.7, range:150, atkSpeed:0.5, count:1, r:15, name:'Carrier', buildTime:10, isAir:true },
-  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:165, dmg:27, speed:2.0, range:18,  atkSpeed:0.5, count:7, r:6,  name:'Zergling', buildTime:2 },
-  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:540, dmg:37, speed:1.0, range:80,  atkSpeed:0.8, count:2, r:10, name:'Roach', buildTime:3 },
-  hydralisk:    { faction:'zerg', cost:100, gasCost:50,  supply:2, hp:350, dmg:50, speed:1.1, range:130, atkSpeed:0.8, count:2, r:9,  name:'Hydralisk', buildTime:4 },
-  baneling:     { faction:'zerg', cost:25,  gasCost:25,  supply:1, hp:120, dmg:200,speed:1.8, range:15,  atkSpeed:0.1, count:4, r:7,  name:'Baneling', suicide:true, splash:35, buildTime:3 },
-  ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:900, dmg:80, speed:0.9, range:22,  atkSpeed:1.0, count:1, r:16, name:'Ultralisk', splash:25, buildTime:8 },
-  drone:        { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:160, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  name:'Drone', worker:true, mineRate:0.3, buildTime:2 },
-  mutalisk:     { faction:'zerg', cost:100, gasCost:100, supply:2, hp:200, dmg:30, speed:1.8, range:90,  atkSpeed:0.7, count:1, r:9,  name:'Mutalisk', splash:15, buildTime:5, isAir:true },
-  corruptor:    { faction:'zerg', cost:150, gasCost:100, supply:2, hp:350, dmg:50, speed:1.1, range:120, atkSpeed:1.0, count:1, r:11, name:'Corruptor', buildTime:5, isAir:true },
-  broodlord:    { faction:'zerg', cost:150, gasCost:150, supply:4, hp:500, dmg:60, speed:0.5, range:160, atkSpeed:2.0, count:1, r:14, name:'Brood Lord', splash:25, buildTime:8, isAir:true },
+  // TERRAN
+  marine:       { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:45,  armor:0, dmg:6,  speed:2.25, range:120, atkSpeed:0.86, count:1, r:8,  name:'Marine', buildTime:6, tags:['light','biological'] },
+  marauder:     { faction:'terran', cost:100, gasCost:25,  supply:2, hp:125, armor:1, dmg:10, speed:2.25, range:144, atkSpeed:1.5,  count:1, r:10, name:'Marauder', buildTime:7, tags:['armored','biological'], bonusDmg:{tag:'armored',amount:10} },
+  reaper:       { faction:'terran', cost:50,  gasCost:50,  supply:1, hp:60,  armor:0, dmg:8,  speed:3.75, range:120, atkSpeed:1.1,  count:1, r:7,  name:'Reaper', buildTime:6, tags:['light','biological'] },
+  siegetank:    { faction:'terran', cost:150, gasCost:125, supply:3, hp:160, armor:1, dmg:15, speed:2.25, range:168, atkSpeed:1.04, count:1, r:14, name:'Siege Tank', splash:30, buildTime:11, tags:['armored','mechanical'], bonusDmg:{tag:'armored',amount:10} },
+  hellion:      { faction:'terran', cost:100, gasCost:0,   supply:2, hp:90,  armor:0, dmg:8,  speed:4.25, range:120, atkSpeed:2.5,  count:1, r:9,  name:'Hellion', splash:20, buildTime:7, tags:['light','mechanical'], bonusDmg:{tag:'light',amount:6} },
+  ghost:        { faction:'terran', cost:200, gasCost:100, supply:2, hp:100, armor:0, dmg:10, speed:2.25, range:144, atkSpeed:1.5,  count:1, r:9,  name:'Ghost', buildTime:10, tags:['biological','psionic'], bonusDmg:{tag:'light',amount:10}, cloaked:true },
+  scv:          { faction:'terran', cost:50,  gasCost:0,   supply:1, hp:45,  armor:0, dmg:5,  speed:2.81, range:0,   atkSpeed:1.5,  count:1, r:8,  name:'SCV', worker:true, mineRate:0.3, buildTime:8, tags:['light','biological','mechanical'] },
+  viking:       { faction:'terran', cost:150, gasCost:75,  supply:2, hp:125, armor:0, dmg:10, speed:3.85, range:216, atkSpeed:2.0,  count:1, r:10, name:'Viking', buildTime:10, isAir:true, tags:['armored','mechanical'], bonusDmg:{tag:'armored',amount:4} },
+  medivac:      { faction:'terran', cost:100, gasCost:100, supply:2, hp:150, armor:1, dmg:0,  speed:2.5,  range:100, atkSpeed:1.5,  count:1, r:10, name:'Medivac', healer:true, healAmt:9, buildTime:10, isAir:true, tags:['armored','mechanical'] },
+  banshee:      { faction:'terran', cost:150, gasCost:100, supply:3, hp:140, armor:0, dmg:24, speed:2.75, range:144, atkSpeed:1.25, count:1, r:10, name:'Banshee', buildTime:11, isAir:true, tags:['light','mechanical'] },
+  battlecruiser:{ faction:'terran', cost:400, gasCost:300, supply:6, hp:550, armor:3, dmg:8,  speed:1.875,range:144, atkSpeed:0.225,count:1, r:16, name:'Battlecruiser', buildTime:21, isAir:true, tags:['armored','mechanical','massive'] },
+  thor:         { faction:'terran', cost:300, gasCost:200, supply:6, hp:400, armor:1, dmg:30, speed:2.25, range:168, atkSpeed:1.28, count:1, r:16, name:'Thor', splash:30, buildTime:14, tags:['armored','mechanical','massive'] },
+  raven:        { faction:'terran', cost:100, gasCost:200, supply:2, hp:140, armor:1, dmg:0,  speed:2.25, range:0,   atkSpeed:0,    count:1, r:9,  name:'Raven', buildTime:12, isAir:true, detector:true, detectionRange:150, tags:['light','mechanical'] },
+  // PROTOSS
+  zealot:       { faction:'protoss', cost:100, gasCost:0,   supply:2, hp:100, armor:1, dmg:16, speed:2.25, range:20,  atkSpeed:1.2,  count:1, r:10, name:'Zealot', buildTime:9, shield:true, shieldAmt:50, tags:['light','biological'] },
+  stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:80,  armor:1, dmg:10, speed:2.953,range:144, atkSpeed:1.44, count:1, r:9,  name:'Stalker', buildTime:10, shield:true, shieldAmt:80, tags:['armored','mechanical'], bonusDmg:{tag:'armored',amount:4} },
+  sentry:       { faction:'protoss', cost:50,  gasCost:100, supply:2, hp:40,  armor:1, dmg:6,  speed:2.25, range:120, atkSpeed:1.0,  count:1, r:8,  name:'Sentry', shield:true, shieldAmt:40, buildTime:9, tags:['light','mechanical','psionic'] },
+  hightemplar:  { faction:'protoss', cost:50,  gasCost:150, supply:2, hp:40,  armor:0, dmg:0,  speed:1.875,range:0,   atkSpeed:0,    count:1, r:9,  name:'High Templar', buildTime:13, shield:true, shieldAmt:40, tags:['light','biological','psionic'] },
+  immortal:     { faction:'protoss', cost:250, gasCost:100, supply:4, hp:200, armor:1, dmg:20, speed:2.25, range:144, atkSpeed:1.45, count:1, r:13, name:'Immortal', buildTime:13, shield:true, shieldAmt:100, tags:['armored','mechanical'], bonusDmg:{tag:'armored',amount:30} },
+  colossus:     { faction:'protoss', cost:300, gasCost:200, supply:6, hp:200, armor:1, dmg:30, speed:2.25, range:168, atkSpeed:1.5,  count:1, r:14, name:'Colossus', splash:40, buildTime:18, shield:true, shieldAmt:150, tags:['armored','mechanical','massive'] },
+  probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:20,  armor:0, dmg:5,  speed:2.81, range:0,   atkSpeed:1.07, count:1, r:8,  name:'Probe', worker:true, mineRate:0.3, buildTime:8, shield:true, shieldAmt:20, tags:['light','mechanical'] },
+  phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:120, armor:0, dmg:10, speed:4.25, range:120, atkSpeed:1.1,  count:1, r:9,  name:'Phoenix', buildTime:8, isAir:true, shield:true, shieldAmt:60, tags:['light','mechanical'], bonusDmg:{tag:'light',amount:5} },
+  voidray:      { faction:'protoss', cost:250, gasCost:150, supply:4, hp:150, armor:0, dmg:6,  speed:2.25, range:144, atkSpeed:0.6,  count:1, r:11, name:'Void Ray', buildTime:12, isAir:true, shield:true, shieldAmt:100, tags:['armored','mechanical'], bonusDmg:{tag:'armored',amount:4} },
+  carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:300, armor:2, dmg:0,  speed:1.875,range:192, atkSpeed:0,    count:1, r:15, name:'Carrier', buildTime:21, isAir:true, shield:true, shieldAmt:150, tags:['armored','mechanical','massive'] },
+  darktemplar:  { faction:'protoss', cost:125, gasCost:125, supply:2, hp:40,  armor:1, dmg:45, speed:2.8125,range:20, atkSpeed:1.694,count:1, r:9,  name:'Dark Templar', buildTime:12, cloaked:true, shield:true, shieldAmt:80, tags:['light','biological','psionic'] },
+  observer:     { faction:'protoss', cost:25,  gasCost:75,  supply:1, hp:40,  armor:0, dmg:0,  speed:1.875,range:0,   atkSpeed:0,    count:1, r:5,  name:'Observer', buildTime:8, isAir:true, cloaked:true, detector:true, detectionRange:150, shield:true, shieldAmt:20, tags:['light','mechanical'] },
+  // ZERG
+  zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:35,  armor:0, dmg:5,  speed:2.953,range:18,  atkSpeed:0.696,count:2, r:6,  name:'Zergling', buildTime:6, tags:['light','biological'] },
+  roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:145, armor:1, dmg:16, speed:2.25, range:96,  atkSpeed:2.0,  count:1, r:10, name:'Roach', buildTime:6, tags:['armored','biological'] },
+  hydralisk:    { faction:'zerg', cost:100, gasCost:50,  supply:2, hp:80,  armor:0, dmg:12, speed:2.25, range:144, atkSpeed:0.83, count:1, r:9,  name:'Hydralisk', buildTime:8, tags:['light','biological'] },
+  baneling:     { faction:'zerg', cost:25,  gasCost:25,  supply:1, hp:30,  armor:0, dmg:20, speed:2.5,  range:15,  atkSpeed:0.1,  count:1, r:7,  name:'Baneling', suicide:true, splash:35, buildTime:5, tags:['biological'], bonusDmg:{tag:'light',amount:15} },
+  ultralisk:    { faction:'zerg', cost:300, gasCost:200, supply:6, hp:500, armor:1, dmg:30, speed:2.953,range:22,  atkSpeed:0.861,count:1, r:16, name:'Ultralisk', splash:25, buildTime:13, tags:['armored','biological','massive'] },
+  drone:        { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:40,  armor:0, dmg:5,  speed:2.81, range:0,   atkSpeed:1.5,  count:1, r:8,  name:'Drone', worker:true, mineRate:0.3, buildTime:8, tags:['light','biological'] },
+  mutalisk:     { faction:'zerg', cost:100, gasCost:100, supply:2, hp:120, armor:0, dmg:9,  speed:4.0,  range:72,  atkSpeed:1.38, count:1, r:9,  name:'Mutalisk', bounce:{targets:2,decay:0.33}, buildTime:8, isAir:true, tags:['light','biological'] },
+  corruptor:    { faction:'zerg', cost:150, gasCost:100, supply:2, hp:200, armor:2, dmg:14, speed:2.953,range:144, atkSpeed:1.8,  count:1, r:11, name:'Corruptor', buildTime:10, isAir:true, tags:['armored','biological'], bonusDmg:{tag:'massive',amount:6} },
+  broodlord:    { faction:'zerg', cost:150, gasCost:150, supply:4, hp:225, armor:1, dmg:20, speed:1.875,range:228, atkSpeed:2.5,  count:1, r:14, name:'Brood Lord', buildTime:8, isAir:true, tags:['armored','biological'], spawnsBroodlings:true },
+  infestor:     { faction:'zerg', cost:100, gasCost:150, supply:2, hp:90,  armor:0, dmg:0,  speed:2.25, range:130, atkSpeed:0,    count:1, r:10, name:'Infestor', buildTime:10, tags:['armored','biological','psionic'] },
+  queen:        { faction:'zerg', cost:150, gasCost:0,   supply:2, hp:175, armor:1, dmg:4,  speed:0.94, range:120, atkSpeed:1.0,  count:1, r:11, name:'Queen', buildTime:10, tags:['biological','psionic'] },
+  overseer:     { faction:'zerg', cost:50,  gasCost:50,  supply:0, hp:200, armor:1, dmg:0,  speed:2.8516,range:0,  atkSpeed:0,    count:1, r:9,  name:'Overseer', buildTime:6, isAir:true, detector:true, detectionRange:150, tags:['armored','biological'] },
 };
 
 const WORKER_TYPE = { terran:'scv', protoss:'probe', zerg:'drone' };
@@ -105,9 +142,9 @@ class GameSim {
     this.playerGas = 0;
     this.enemyGas = 0;
     this.playerSupply = 0;
-    this.playerSupplyMax = 10;
+    this.playerSupplyMax = faction1 === 'zerg' ? 14 : 15;
     this.enemySupply = 0;
-    this.enemySupplyMax = 10;
+    this.enemySupplyMax = faction2 === 'zerg' ? 14 : 15;
     this.playerStance = 'attack';
     this.enemyStance = 'attack';
     this.aiTimerPlayer = 0;
@@ -116,10 +153,10 @@ class GameSim {
 
     this.towers = {
       player: {
-        base:  { x: ARENA_W / 2, y: GAME_H - 90,  hp: 2400, maxHp: 2400, r: BASE_R }
+        base:  { x: ARENA_W / 2, y: GAME_H - 90,  hp: 1500, maxHp: 1500, r: BASE_R }
       },
       enemy: {
-        base:  { x: ARENA_W / 2, y: 90,  hp: 2400, maxHp: 2400, r: BASE_R }
+        base:  { x: ARENA_W / 2, y: 90,  hp: 1500, maxHp: 1500, r: BASE_R }
       }
     };
 
@@ -159,8 +196,8 @@ class GameSim {
       ],
     };
 
-    this.playerBuildings = [{ type: '_base', x: ARENA_W/2, y: GAME_H - 90, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
-    this.enemyBuildings = [{ type: '_base', x: ARENA_W/2, y: 90, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
+    this.playerBuildings = [{ type: '_base', x: ARENA_W/2, y: GAME_H - 90, hp: 1500, maxHp: 1500, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
+    this.enemyBuildings = [{ type: '_base', x: ARENA_W/2, y: 90, hp: 1500, maxHp: 1500, built: true, buildProgress: 99, buildTime: 1, queue: [] }];
 
     // Tracking stats
     this.stats = {
@@ -168,10 +205,10 @@ class GameSim {
       enemy: { unitsBuilt: 0, unitsLost: 0, mineralsSpent: 0, gasSpent: 0, peakSupply: 0 },
     };
 
-    // Start with 4 workers each
+    // Start with 6 workers each (matching SC2)
     const pw = WORKER_TYPE[faction1];
     const ew = WORKER_TYPE[faction2];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       this.spawnUnit(pw, ARENA_W/2 + (Math.random()-0.5)*30, GAME_H - 110 + (Math.random()-0.5)*15, 'player');
       this.spawnUnit(ew, ARENA_W/2 + (Math.random()-0.5)*30, 110 + (Math.random()-0.5)*15, 'enemy');
     }
@@ -184,6 +221,9 @@ class GameSim {
   spawnUnit(defName, x, y, team) {
     const def = UNIT_DEFS[defName];
     const totalSupply = (def.supply || 1) * def.count;
+    const currentSupply = team === 'player' ? this.playerSupply : this.enemySupply;
+    const maxSupply = team === 'player' ? this.playerSupplyMax : this.enemySupplyMax;
+    if (currentSupply + totalSupply > Math.min(200, maxSupply)) return;
     if (team === 'player') { this.playerSupply += totalSupply; this.stats.player.peakSupply = Math.max(this.stats.player.peakSupply, this.playerSupply); }
     else { this.enemySupply += totalSupply; this.stats.enemy.peakSupply = Math.max(this.stats.enemy.peakSupply, this.enemySupply); }
 
@@ -197,11 +237,18 @@ class GameSim {
         x: x + ox, y: y + oy,
         hp: def.hp, maxHp: def.hp,
         shield, maxShield: shield,
+        armor: def.armor || 0,
+        tags: def.tags || [],
         dmg: def.dmg, speed: def.speed, range: def.range,
         atkSpeed: def.atkSpeed, atkTimer: 0, r: def.r,
         dead: false,
         healer: def.healer || false, healAmt: def.healAmt || 0,
         suicide: def.suicide || false, splash: def.splash || 0,
+        bonusDmg: def.bonusDmg || null,
+        bounce: def.bounce || null,
+        spawnsBroodlings: def.spawnsBroodlings || false,
+        cloaked: def.cloaked || false,
+        detector: def.detector || false,
         worker: def.worker || false, isAir: def.isAir || false,
         supply: def.supply || 1,
         miningState: 'idle', miningTimer: 0, assignedPatch: null, carrying: 0,
@@ -226,6 +273,13 @@ class GameSim {
            this.getTeamSupply(team) + (def.supply || 1) * def.count <= this.getTeamSupplyMax(team);
   }
 
+  hasUnitRequirement(unitType, team) {
+    const req = UNIT_REQUIRES[unitType];
+    if (!req) return true;
+    const buildings = team === 'player' ? this.playerBuildings : this.enemyBuildings;
+    return buildings.some(b => b.type === req && b.built);
+  }
+
   getAvailableUnits(team) {
     const faction = team === 'player' ? this.playerFaction : this.enemyFaction;
     const buildings = team === 'player' ? this.playerBuildings : this.enemyBuildings;
@@ -235,7 +289,9 @@ class GameSim {
       if (!b.built) continue;
       const bdef = BUILDING_DEFS[b.type];
       if (bdef && bdef.unlocks) {
-        for (const u of bdef.unlocks) available.push(u);
+        for (const u of bdef.unlocks) {
+          if (this.hasUnitRequirement(u, team)) available.push(u);
+        }
       }
     }
     return available;
@@ -261,11 +317,21 @@ class GameSim {
         available.push(btype);
         continue;
       }
-      const exists = buildings.some(b => b.type === btype);
-      if (exists) continue;
+      // Tech buildings: only one allowed
+      if (bdef.isTech) {
+        const exists = buildings.some(b => b.type === btype);
+        if (exists) continue;
+      }
+      // Check prerequisite
       if (bdef.requires) {
         const hasReq = buildings.some(b => b.type === bdef.requires && b.built);
         if (!hasReq) continue;
+      }
+      // Production buildings without isTech: allow multiples
+      if (!bdef.isTech) {
+        // Already handled above for supply/expansion/gas
+      } else {
+        // isTech already deduplicated above
       }
       available.push(btype);
     }
@@ -342,7 +408,8 @@ class GameSim {
   }
 
   dealDamage(target, dmg) {
-    if (target.type === 'ghost') dmg = Math.floor(dmg * 0.5);
+    // Base armor reduction
+    dmg = Math.max(1, dmg - (target.armor || 0));
     if (target.shield && target.shield > 0) {
       const absorbed = Math.min(target.shield, dmg);
       target.shield -= absorbed;
@@ -430,7 +497,7 @@ class GameSim {
       const blinkDir = unit.team === 'player' ? 1 : -1;
       unit.y += 60 * blinkDir;
       unit.y = Math.max(30, Math.min(GAME_H - 30, unit.y));
-      unit.blinkTimer = 10;
+      unit.blinkTimer = 7;
     }
 
     if (unit.type === 'ghost' && unit.empTimer <= 0) {
@@ -605,8 +672,8 @@ class GameSim {
             b.built = true;
             const bdef = BUILDING_DEFS[b.type];
             if (bdef && bdef.supplyCap) {
-              if (team === 'player') this.playerSupplyMax += bdef.supplyCap;
-              else this.enemySupplyMax += bdef.supplyCap;
+              if (team === 'player') this.playerSupplyMax = Math.min(200, this.playerSupplyMax + bdef.supplyCap);
+              else this.enemySupplyMax = Math.min(200, this.enemySupplyMax + bdef.supplyCap);
             }
           }
         }
@@ -636,6 +703,11 @@ class GameSim {
     for (const unit of this.units) {
       if (unit.dead) continue;
       unit.animFrame += dt * 5;
+      // Despawn timer (broodlings)
+      if (unit.despawnTimer > 0) {
+        unit.despawnTimer -= dt;
+        if (unit.despawnTimer <= 0) { unit.hp = 0; unit.dead = true; continue; }
+      }
 
       if (unit.worker) { this.updateWorker(unit, dt); continue; }
       this.updateUnitAbilities(unit, dt);
@@ -647,18 +719,22 @@ class GameSim {
       if (unit.type === 'ultralisk' && unit.hp < unit.maxHp * 0.3) effectiveAtkSpeed *= 0.67;
 
       let effectiveDmg = unit.dmg;
+      // Bonus damage vs target tags
+      if (target && unit.bonusDmg && target.tags && target.tags.includes(unit.bonusDmg.tag)) {
+        effectiveDmg += unit.bonusDmg.amount;
+      }
       if (unit.type === 'voidray') {
         if (target && target === unit.lastTarget) {
           unit.voidrayAttackTime += dt;
-          if (unit.voidrayAttackTime > 4) effectiveDmg = 100;
-          else if (unit.voidrayAttackTime > 2) effectiveDmg = 75;
+          if (unit.voidrayAttackTime > 4) effectiveDmg = 10;
+          else if (unit.voidrayAttackTime > 2) effectiveDmg = 8;
         } else { unit.voidrayAttackTime = 0; }
         unit.lastTarget = target;
       }
 
       let effectiveRange = unit.range;
       let effectiveSplash = unit.splash;
-      if (unit.siegeMode) { effectiveRange = 220; effectiveDmg = 180; effectiveSplash = 40; }
+      if (unit.siegeMode) { effectiveRange = 300; effectiveDmg = 35; effectiveSplash = 40; }
 
       if (target) {
         const d = this.dist(unit, target);
@@ -678,6 +754,40 @@ class GameSim {
               if (effectiveSplash > 0) this.dealSplash(unit.x, unit.y, effectiveSplash, effectiveDmg, unit.team);
               else this.dealDamage(target, effectiveDmg);
               unit.hp = 0; unit.dead = true;
+            } else if (unit.spawnsBroodlings) {
+              // Brood Lord: spawn temporary melee broodlings at target
+              for (let bi = 0; bi < 2; bi++) {
+                const bx = target.x + (Math.random()-0.5) * 20;
+                const by = target.y + (Math.random()-0.5) * 20;
+                this.units.push({
+                  type: 'zergling', team: unit.team, x: bx, y: by,
+                  hp: 30, maxHp: 30, shield: 0, maxShield: 0, armor: 0, tags: ['biological'],
+                  dmg: 4, speed: 2.0, range: 18, atkSpeed: 0.696, atkTimer: 0, r: 6,
+                  dead: false, healer: false, healAmt: 0, suicide: false, splash: 0,
+                  bonusDmg: null, bounce: null, spawnsBroodlings: false,
+                  cloaked: false, detector: false, worker: false, isAir: false, supply: 0,
+                  miningState: 'idle', miningTimer: 0, assignedPatch: null, carrying: 0,
+                  siegeMode: false, siegeTimer: 0, chargeTimer: 0, blinkTimer: 0, empTimer: 0, forcefieldTimer: 0,
+                  voidrayAttackTime: 0, lastTarget: null, animFrame: 0, despawnTimer: 6,
+                });
+              }
+            } else if (unit.bounce) {
+              // Mutalisk bounce: hit primary, then bounce to nearby targets
+              this.dealDamage(target, effectiveDmg);
+              let bounceTarget = target;
+              let bounceDmg = effectiveDmg;
+              for (let bi = 0; bi < unit.bounce.targets; bi++) {
+                bounceDmg = Math.floor(bounceDmg * unit.bounce.decay);
+                if (bounceDmg < 1) break;
+                let nearest = null, nearestD = Infinity;
+                for (const e of this.units) {
+                  if (e.dead || e.team === unit.team || e === bounceTarget) continue;
+                  const bd = this.dist(bounceTarget, e);
+                  if (bd < 30 && bd < nearestD) { nearestD = bd; nearest = e; }
+                }
+                if (nearest) { this.dealDamage(nearest, bounceDmg); bounceTarget = nearest; }
+                else break;
+              }
             } else {
               // Simplified: direct hit (no projectile travel time)
               if (effectiveSplash > 0) this.dealSplash(target.x, target.y, effectiveSplash, effectiveDmg, unit.team);

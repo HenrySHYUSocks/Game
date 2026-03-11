@@ -1010,7 +1010,12 @@ function getAvailableBuildings(team) {
       const exists = buildings.some(b => b.type === btype);
       if (exists) continue;
     }
-    // Production buildings: unlimited (upgrade buildings already filtered above)
+    // Tech buildings: only one allowed
+    if (bdef.isTech) {
+      const exists = buildings.some(b => b.type === btype);
+      if (exists) continue;
+    }
+    // Production buildings: unlimited (upgrade/tech buildings already filtered above)
     // Check prerequisite
     if (bdef.requires) {
       const hasReq = buildings.some(b => b.type === bdef.requires && b.built);
@@ -2877,7 +2882,7 @@ function updateGame(dt) {
 
 function dealDamage(target, dmg) {
   // Ghost cloak: invisibility only (no damage reduction)
-  // Guardian Shield: 30% damage reduction from nearby Sentry
+  // Guardian Shield: flat -2 damage reduction from nearby Sentry
   if (target.team) {
     for (const u of units) {
       if (u.dead || u.team !== target.team || u.type !== 'sentry') continue;
@@ -3042,10 +3047,11 @@ const AI_BUILD_ORDERS = {
     { condition: (s) => s.workerCount >= 5 && !s.hasGas && s.minerals >= 75, action: 'gas' },
     { condition: (s) => s.workerCount < 8, action: 'worker' },
     { condition: (s) => s.hasProdBuilding && s.combatCount < 2, action: 'army' },
-    { condition: (s) => s.prodCount < 2 && s.minerals >= 100, action: 'pool' },
+    { condition: (s) => s.prodCount < 2 && s.minerals >= 150, action: 'roachwarren' },
     { condition: (s) => s.hasProdBuilding && s.combatCount < 4, action: 'army' },
     { condition: (s) => s.workerCount < 10, action: 'worker' },
-    { condition: (s) => s.prodCount >= 2 && !s.hasTier2, action: 'den' },
+    { condition: (s) => s.prodCount >= 1 && !enemyBuildings.some(b => b.type === 'lair'), action: 'lair' },
+    { condition: (s) => enemyBuildings.some(b => b.type === 'lair' && b.built) && !s.hasTier2, action: 'den' },
     { condition: (s) => s.workerCount < 14, action: 'worker' },
     { condition: (s) => s.combatCount < 6, action: 'army' },
     { condition: (s) => s.prodCount < 3 && s.minerals >= 100, action: 'pool' },
@@ -3073,7 +3079,7 @@ function aiGetState() {
   const hasGas = enemyBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding);
   const gasCount = enemyBuildings.filter(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].gasBuilding).length;
   const tier2Types = { terran: 'factory', protoss: 'robo', zerg: 'den' };
-  const tier3Types = { terran: 'starport', protoss: 'fleetbeacon', zerg: 'spire' };
+  const tier3Types = { terran: 'starport', protoss: 'stargate', zerg: 'spire' };
   const hasTier2 = enemyBuildings.some(b => b.type === tier2Types[enemyFaction]);
   const hasTier3 = enemyBuildings.some(b => b.type === tier3Types[enemyFaction]);
   const hasUpgBldg = enemyBuildings.some(b => {
@@ -3094,7 +3100,7 @@ function aiGetState() {
     return bd && bd.unlocks && bd.unlocks.length > 0 && !bd.isExpansion && !bd.isThirdExpansion && b.type !== '_base';
   });
   const playerProdCount = playerProdBuildings.length;
-  const playerHasAirProd = playerBuildings.some(b => b.type === 'starport' || b.type === 'fleetbeacon' || b.type === 'spire');
+  const playerHasAirProd = playerBuildings.some(b => b.type === 'starport' || b.type === 'stargate' || b.type === 'fleetbeacon' || b.type === 'spire');
   const playerHasTier2 = playerBuildings.some(b => b.type === 'factory' || b.type === 'robo' || b.type === 'den');
   const playerHasTier3 = playerBuildings.some(b => b.type === 'starport' || b.type === 'fleetbeacon' || b.type === 'spire');
   const playerProdAdvantage = playerProdCount - prodCount; // positive = player has more production
@@ -3297,7 +3303,7 @@ function getUnitWeight(unitType, playerComp) {
 
   // ---- Counter-composition logic ----
   // Proactive anti-air: react to air BUILDINGS before air units even appear
-  const playerHasAirProd = playerBuildings.some(b => b.type === 'starport' || b.type === 'fleetbeacon' || b.type === 'spire');
+  const playerHasAirProd = playerBuildings.some(b => b.type === 'starport' || b.type === 'stargate' || b.type === 'fleetbeacon' || b.type === 'spire');
   if (playerHasAirProd && playerComp.air === 0) {
     // Player is building air production but no air units yet - prepare!
     if (!def.isAir && def.range > 80) weight += Math.ceil(cw * 0.6); // ground anti-air
@@ -3387,6 +3393,22 @@ function getUnitWeight(unitType, playerComp) {
     if (spamDef.cost <= 75 && def.splash) weight += Math.ceil(cw * 0.8 * urgency);
   }
 
+  // Bonus damage awareness: prefer units that deal bonus damage vs player's dominant type
+  if (def.bonusDmg && playerComp.total > 3) {
+    const playerTags = {};
+    for (const u of units) {
+      if (u.dead || u.team !== 'player' || u.worker) continue;
+      const ud = UNIT_DEFS[u.type];
+      if (ud && ud.tags) {
+        for (const tag of ud.tags) playerTags[tag] = (playerTags[tag] || 0) + 1;
+      }
+    }
+    const bonusTargets = playerTags[def.bonusDmg.tag] || 0;
+    if (bonusTargets > 0) {
+      weight += Math.ceil(cw * 0.5 * Math.min(bonusTargets / 3, 2));
+    }
+  }
+
   // ---- Specific unit synergy bonuses ----
   const countType = (t) => units.filter(u => !u.dead && u.team === 'enemy' && u.type === t).length;
   const hasAnyType = (t) => countType(t) > 0;
@@ -3415,6 +3437,12 @@ function getUnitWeight(unitType, playerComp) {
   if ((unitType === 'viking' || unitType === 'corruptor') && playerComp.air > 1) weight += Math.ceil(cw * 0.8);
   // Brood lords in late game with ground screen
   if (unitType === 'broodlord' && aiPhase === 'late' && countType('hydralisk') >= 2) weight += 3;
+  // Queens for Zerg: want 1-2 for inject
+  if (unitType === 'queen') {
+    const queenCount = countType('queen');
+    const baseCount2 = 1 + (hasExpansion('enemy') ? 1 : 0) + (hasThirdExpansion('enemy') ? 1 : 0);
+    weight = queenCount < baseCount2 ? 8 : 0;
+  }
 
   return Math.max(0, weight);
 }
@@ -3796,7 +3824,7 @@ function updateEnemyAI(dt) {
       }
       case 'tech': {
         const tier2Types = { terran: 'factory', protoss: 'robo', zerg: 'den' };
-        const tier3Types = { terran: 'starport', protoss: 'fleetbeacon', zerg: 'spire' };
+        const tier3Types = { terran: 'starport', protoss: 'stargate', zerg: 'spire' };
         const upgradeTypes = { terran: 'engineeringbay', protoss: 'forge', zerg: 'evolutionchamber' };
         if (!s.hasTier2) {
           const t2 = tier2Types[enemyFaction];
@@ -3804,7 +3832,7 @@ function updateEnemyAI(dt) {
             aiBuildBuilding(t2);
             actionsExecuted++;
           }
-        } else if (!s.hasTier3 && s.prodCount >= 3) {
+        } else if (!s.hasTier3 && s.prodCount >= 2) {
           const t3 = tier3Types[enemyFaction];
           if (enemyMinerals >= BUILDING_DEFS[t3].cost && enemyGas >= (BUILDING_DEFS[t3].gasCost || 0)) {
             aiBuildBuilding(t3);
@@ -3815,6 +3843,31 @@ function updateEnemyAI(dt) {
           if (enemyMinerals >= BUILDING_DEFS[ubType].cost) {
             aiBuildBuilding(ubType);
             actionsExecuted++;
+          }
+        } else {
+          // Build tech prerequisite buildings for advanced units
+          const techPriority = {
+            terran: ['ghostacademy', 'armory', 'fusioncore'],
+            protoss: ['twilightcouncil', 'templararchives', 'darkshrine', 'roboticsbay', 'fleetbeacon'],
+            zerg: ['roachwarren', 'banelingnest', 'lair', 'infestationpit', 'hive', 'ultraliskcavern', 'greaterspire'],
+          };
+          const priority = techPriority[enemyFaction] || [];
+          for (const btype of priority) {
+            const bdef = BUILDING_DEFS[btype];
+            if (!bdef) continue;
+            // Skip if already built
+            if (enemyBuildings.some(b => b.type === btype)) continue;
+            // Check prerequisites
+            if (bdef.requires && !enemyBuildings.some(b => b.type === bdef.requires && b.built)) continue;
+            // Phase gate: don't build late-game tech too early
+            if ((btype === 'fusioncore' || btype === 'hive' || btype === 'ultraliskcavern' || btype === 'greaterspire') && aiPhase !== 'late') continue;
+            if ((btype === 'infestationpit' || btype === 'armory' || btype === 'darkshrine') && aiPhase === 'early') continue;
+            const gasCost = bdef.gasCost || 0;
+            if (enemyMinerals >= bdef.cost && enemyGas >= gasCost) {
+              aiBuildBuilding(btype);
+              actionsExecuted++;
+              break;
+            }
           }
         }
         break;
@@ -3883,7 +3936,7 @@ function updateEnemyAI(dt) {
   const prodBuildingTypes = getAvailableBuildings('enemy').filter(bt => {
     const bd = BUILDING_DEFS[bt];
     return !bd.supplyCap && !bd.gasBuilding && !bd.isExpansion && !bd.isDefense
-      && !bd.isOrbitalUpgrade && !bd.isUpgrade && bd.unlocks && bd.unlocks.length > 0;
+      && !bd.isOrbitalUpgrade && !bd.isUpgrade && !bd.isTech && bd.unlocks && bd.unlocks.length > 0;
   });
   for (const btype of prodBuildingTypes) {
     const bdef = BUILDING_DEFS[btype];
