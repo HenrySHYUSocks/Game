@@ -2421,8 +2421,9 @@ function updateGame(dt) {
     if (unit.type === 'voidray') {
       if (target && target === unit.lastTarget) {
         unit.voidrayAttackTime += dt;
-        if (unit.voidrayAttackTime > 4) effectiveDmg = 100;
-        else if (unit.voidrayAttackTime > 2) effectiveDmg = 75;
+        if (unit.voidrayAttackTime > 4) effectiveDmg = 10;
+        else if (unit.voidrayAttackTime > 2) effectiveDmg = 8;
+        // else stays at base dmg (6)
       } else {
         unit.voidrayAttackTime = 0;
       }
@@ -2557,7 +2558,26 @@ function updateGame(dt) {
             unit.dead = true;
           } else {
             if (effectiveRange > 40) {
+              // Brood Lord: spawn broodlings at target instead of normal projectile damage
+              if (unit.spawnsBroodlings) {
+                spawnParticle(unit.x, unit.y, '#aa2222', 8);
+                for (let bi = 0; bi < 2; bi++) {
+                  const bx = target.x + (Math.random()-0.5)*20;
+                  const by = target.y + (Math.random()-0.5)*20;
+                  const broodling = spawnUnit('zergling', bx, by, unit.team);
+                  if (broodling) {
+                    broodling.hp = 30; broodling.maxHp = 30;
+                    broodling.dmg = 4; broodling.speed = 2.0;
+                    broodling.range = 18; broodling.r = 6;
+                    broodling.despawnTimer = 6;
+                    broodling.type = 'zergling'; // reuse zergling visuals
+                    broodling.color = '#aa4444';
+                    broodling.supply = 0; // broodlings don't cost supply
+                  }
+                }
+              } else {
               projectiles.push({ x: unit.x, y: unit.y, tx: target.x, ty: target.y, dmg: effectiveDmg, team: unit.team, speed: 250, color: unit.color, splash: effectiveSplash, target, sourceType: unit.type });
+              }
               // Mutalisk bounce: hit 2 additional nearby targets with decaying damage
               if (unit.type === 'mutalisk') {
                 let bounceTarget = target;
