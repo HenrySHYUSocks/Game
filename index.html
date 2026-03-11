@@ -2860,30 +2860,32 @@ const AI_PARAMS = {
     phaseWeights: { workerW: 1.0, armyW: 0.5, techW: 0.3, expandW: 0.0, defenseW: 0.8 },
   },
   hard: {
+    // Evolved via self-play: stronger economy focus, better supply management
     decisionMin: 0.1, decisionMax: 0.2,
     attackThreshold: 0.8, attackCooldown: 15,
-    workerCap: 24, gasTime: 4,
-    maxQueue: 5, supplyBuffer: 8,
+    workerCap: 30, gasTime: 4,
+    maxQueue: 5, supplyBuffer: 12,
     counterWeight: 6,
     incomeBonus: 0,
     microEnabled: false, // same auto-combat as player
     groupBeforeAttack: true,
     retreatEnabled: true,
     supplyLookahead: true,
-    phaseWeights: { workerW: 1.3, armyW: 1.2, techW: 1.0, expandW: 0.9, defenseW: 1.0 },
+    phaseWeights: { workerW: 2.2, armyW: 1.2, techW: 0.9, expandW: 1.1, defenseW: 1.2 },
   },
   impossible: {
+    // Evolved via self-play: economy-first, expand aggressively, never supply blocked
     decisionMin: 0.05, decisionMax: 0.1,
     attackThreshold: 0.6, attackCooldown: 8,
-    workerCap: 28, gasTime: 3,
-    maxQueue: 6, supplyBuffer: 10,
+    workerCap: 40, gasTime: 3,
+    maxQueue: 6, supplyBuffer: 15,
     counterWeight: 10,
     incomeBonus: 0,
     microEnabled: false, // same auto-combat as player
     groupBeforeAttack: true,
     retreatEnabled: true,
     supplyLookahead: true,
-    phaseWeights: { workerW: 1.5, armyW: 1.5, techW: 1.2, expandW: 1.0, defenseW: 1.2 },
+    phaseWeights: { workerW: 2.9, armyW: 1.5, techW: 0.8, expandW: 1.3, defenseW: 1.4 },
   },
 };
 
@@ -3008,7 +3010,7 @@ function aiSupplyUtility(s) {
 
 function aiWorkerUtility(s) {
   const P = AI_PARAMS[aiDifficulty];
-  const idealWorkers = Math.min(s.baseCount * 10, P.workerCap + (s.baseCount - 1) * 8);
+  const idealWorkers = Math.min(s.baseCount * 14, P.workerCap + (s.baseCount - 1) * 8);
   if (s.workerCount >= idealWorkers) return 0;
   const deficit = idealWorkers - s.workerCount;
   // Phase modifiers - keep worker production going longer
