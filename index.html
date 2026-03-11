@@ -3601,7 +3601,14 @@ function updateEnemyAI(dt) {
           }
           break;
       }
-      if (executed) aiBuildOrderIndex = stepIndex + 1;
+      if (executed) {
+        // Only advance past executed step if it was the current index.
+        // If we skipped forward to a later step, don't permanently skip earlier ones
+        // (e.g., barracks) that just aren't ready yet.
+        if (stepIndex === aiBuildOrderIndex) {
+          aiBuildOrderIndex = stepIndex + 1;
+        }
+      }
     }
     // Even during build order, don't skip critical supply/worker actions
   }
