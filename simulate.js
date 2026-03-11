@@ -72,7 +72,7 @@ const UNIT_DEFS = {
   zealot:       { faction:'protoss', cost:100, gasCost:0,   supply:2, hp:530, dmg:56, speed:1.4, range:20,  atkSpeed:0.7, count:2, r:10, name:'Zealot', buildTime:3 },
   stalker:      { faction:'protoss', cost:125, gasCost:50,  supply:2, hp:390, dmg:53, speed:1.2, range:130, atkSpeed:0.9, count:2, r:9,  name:'Stalker', buildTime:4 },
   sentry:       { faction:'protoss', cost:50,  gasCost:100, supply:2, hp:250, dmg:25, speed:1.0, range:110, atkSpeed:1.0, count:2, r:8,  name:'Sentry', shield:true, shieldAmt:140, buildTime:3 },
-  hightemplar:  { faction:'protoss', cost:50,  gasCost:150, supply:2, hp:280, dmg:180,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  name:'High Templar', splash:55, buildTime:6 },
+  hightemplar:  { faction:'protoss', cost:150, gasCost:150, supply:2, hp:280, dmg:180,speed:0.7, range:130, atkSpeed:2.5, count:1, r:9,  name:'High Templar', splash:55, buildTime:6 },
   immortal:     { faction:'protoss', cost:275, gasCost:100, supply:4, hp:650, dmg:85, speed:0.8, range:100, atkSpeed:1.2, count:1, r:13, name:'Immortal', buildTime:5 },
   probe:        { faction:'protoss', cost:50,  gasCost:0,   supply:1, hp:180, dmg:0,  speed:1.0, range:0,   atkSpeed:0,   count:1, r:8,  name:'Probe', worker:true, mineRate:0.3, buildTime:2 },
   phoenix:      { faction:'protoss', cost:150, gasCost:100, supply:2, hp:250, dmg:35, speed:1.6, range:110, atkSpeed:0.8, count:1, r:9,  name:'Phoenix', buildTime:5, isAir:true },
