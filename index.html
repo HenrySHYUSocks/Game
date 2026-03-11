@@ -132,6 +132,14 @@ canvas { display: block; }
         <div class="menuBtn" style="padding:6px 12px; font-size:0.7em; background:#442222;" onclick="setDifficulty('impossible')" id="diffImpossible">IMPOSSIBLE</div>
       </div>
     </div>
+    <div style="margin-top:10px; text-align:center;">
+      <div style="color:#888; font-size:0.7em; margin-bottom:6px;">MAP</div>
+      <div style="display:flex; gap:8px; justify-content:center;">
+        <div class="menuBtn" style="padding:6px 12px; font-size:0.7em; background:#1a2a4a; border:1px solid #00d4ff;" onclick="setMap('arena')" id="mapArena">ARENA</div>
+        <div class="menuBtn" style="padding:6px 12px; font-size:0.7em; background:#1a2a4a;" onclick="setMap('battlefield')" id="mapBattlefield">BATTLEFIELD</div>
+      </div>
+      <div style="color:#666; font-size:0.55em; margin-top:3px;" id="mapDesc">Compact map, slower unit speeds</div>
+    </div>
   </div>
   <div id="gameOverScreen">
     <div class="goText" id="goText">VICTORY</div>
@@ -151,8 +159,36 @@ const ctx = canvas.getContext('2d');
 // ---- Layout ----
 let W, H, SCALE;
 const GAME_W = 500;
-const GAME_H = 3200;   // Bigger map — more room for bases, naturals, and mid-field
+let GAME_H = 3200;   // Bigger map — more room for bases, naturals, and mid-field
 let VIEWPORT_H = 700;
+
+// ---- Map Selection ----
+let selectedMap = 'arena'; // 'arena' (original) or 'battlefield' (larger SC2-style)
+let SPEED_MULT = 35;       // Combat unit speed multiplier (pixels per SC2-speed-unit per second)
+let WORKER_SPEED_MULT = 42; // Worker speed multiplier
+
+function applyMapSettings() {
+  if (selectedMap === 'battlefield') {
+    GAME_H = 5000;
+    SPEED_MULT = 50;
+    WORKER_SPEED_MULT = 60;
+  } else {
+    GAME_H = 3200;
+    SPEED_MULT = 35;
+    WORKER_SPEED_MULT = 42;
+  }
+  // Recalculate dependent layout constants
+  RIVER_Y = GAME_H / 2;
+  PLAYER_BASE_Y = GAME_H - 400;
+  ENEMY_BASE_Y = 400;
+  PLAYER_EXP_Y = GAME_H - 120;
+  ENEMY_EXP_Y = 120;
+  THIRD_EXP_Y = RIVER_Y;
+  PLAYER_CHOKE_Y = PLAYER_BASE_Y - 200;
+  ENEMY_CHOKE_Y = ENEMY_BASE_Y + 200;
+  FOG_ROWS = Math.ceil(GAME_H / FOG_CELL);
+  FF_ROWS = Math.ceil(GAME_H / FF_CELL);
+}
 
 function resize() {
   // Simple approach: game fills screen width, viewport height scales with screen
@@ -190,7 +226,7 @@ const PANEL_W = 100;
 const ARENA_W = GAME_W - PANEL_W; // 400
 
 // ---- Arena Layout ----
-const RIVER_Y = GAME_H / 2; // center
+let RIVER_Y = GAME_H / 2; // center
 const RIVER_H = 20;
 const BRIDGE_W = 80;
 const LANE_X = [ARENA_W * 0.30, ARENA_W * 0.70];
@@ -198,8 +234,8 @@ const LANE_X = [ARENA_W * 0.30, ARENA_W * 0.70];
 // Towers / Bases — bases sit with space behind them for naturals
 const TOWER_R = 22;
 const BASE_R = 28;
-const PLAYER_BASE_Y = GAME_H - 400; // base in middle of player zone, natural behind
-const ENEMY_BASE_Y = 400;
+let PLAYER_BASE_Y = GAME_H - 400; // base in middle of player zone, natural behind
+let ENEMY_BASE_Y = 400;
 
 function makeTowers() {
   return {
@@ -241,11 +277,12 @@ let scanZones = []; // { x, y, radius, timer, team }
 let interceptors = []; // { x, y, owner (unit ref), team, hp, dmg, atkTimer, orbitAngle, target }
 let playerUpgrades = { attack: 0, armor: 0 };
 let enemyUpgrades = { attack: 0, armor: 0 };
-let playerUnitUpgrades = { combatShield: false, concussiveShells: false, metabolicBoost: false };
-let enemyUnitUpgrades = { combatShield: false, concussiveShells: false, metabolicBoost: false };
+let playerUnitUpgrades = { combatShield: false, concussiveShells: false, stimPack: false, metabolicBoost: false };
+let enemyUnitUpgrades = { combatShield: false, concussiveShells: false, stimPack: false, metabolicBoost: false };
 const UNIT_UPGRADE_DEFS = {
   combatShield: { name: 'Combat Shield', desc: 'Marine +10 HP', cost: 100, gasCost: 100, time: 15 },
   concussiveShells: { name: 'Conc. Shells', desc: 'Marauder slow', cost: 50, gasCost: 50, time: 10 },
+  stimPack: { name: 'Stim Pack', desc: '+50% spd/atk, -10HP', cost: 100, gasCost: 100, time: 20, requiresTechLab: true },
   metabolicBoost: { name: 'Met. Boost', desc: 'Zergling +40% spd', cost: 100, gasCost: 100, time: 15 },
 };
 let creepZones = []; // { x, y, radius, team } - Zerg creep areas
@@ -253,7 +290,7 @@ let creepZones = []; // { x, y, radius, team } - Zerg creep areas
 // ---- Fog of War ----
 const FOG_CELL = 40; // cell size in game pixels
 const FOG_COLS = Math.ceil(ARENA_W / FOG_CELL);
-const FOG_ROWS = Math.ceil(GAME_H / FOG_CELL);
+let FOG_ROWS = Math.ceil(GAME_H / FOG_CELL);
 const VISION_RANGE = 300; // how far units can see
 const BLDG_VISION = 350; // building sight range
 let fogExplored = []; // 2D array: true if ever seen
@@ -373,7 +410,7 @@ function makeObstacles() {
 // Pre-compute direction grids so units know how to route around obstacles
 const FF_CELL = 20; // cell size in game pixels
 const FF_COLS = Math.ceil(ARENA_W / FF_CELL);
-const FF_ROWS = Math.ceil(GAME_H / FF_CELL);
+let FF_ROWS = Math.ceil(GAME_H / FF_CELL);
 let flowFieldToEnemy = null; // flow field directing toward enemy base
 let flowFieldToPlayer = null; // flow field directing toward player base
 
@@ -671,15 +708,15 @@ function drawObstacles() {
 
 // Mineral patches: 8 per base, expansion patches behind base, third at river
 // Natural expansions sit BEHIND main bases (safe side) — plenty of room
-const PLAYER_EXP_Y = GAME_H - 120; // behind player base (280 units from main — outside 250 filter)
-const ENEMY_EXP_Y = 120;            // behind enemy base
+let PLAYER_EXP_Y = GAME_H - 120; // behind player base (280 units from main — outside 250 filter)
+let ENEMY_EXP_Y = 120;            // behind enemy base
 // Third (contested) expansion in side corridor near river
-const THIRD_EXP_Y = RIVER_Y;
+let THIRD_EXP_Y = RIVER_Y;
 const THIRD_EXP_X = 70; // Left corridor
 
 // Choke point Y positions (in front of bases)
-const PLAYER_CHOKE_Y = PLAYER_BASE_Y - 200;
-const ENEMY_CHOKE_Y = ENEMY_BASE_Y + 200;
+let PLAYER_CHOKE_Y = PLAYER_BASE_Y - 200;
+let ENEMY_CHOKE_Y = ENEMY_BASE_Y + 200;
 
 function makeMineralPatches() {
   const MBY = PLAYER_BASE_Y - 80; // main minerals above player base
@@ -792,7 +829,7 @@ const BUILDING_DEFS = {
   evolutionchamber:  { faction:'zerg', cost:75, buildTime:10, name:'Evo Chamber', unlocks:[], r:16, isUpgrade:true },
   // TERRAN
   bunker:    { faction:'terran', cost:100, buildTime:6, name:'Bunker', unlocks:[], r:16, isDefense:true, defenseHp:400, defenseDmg:0, defenseRange:140, defenseAtkSpeed:0.8, bunkerGarrison:true, maxGarrison:4 },
-  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper','ghost'], r:18, canAddon:true, reactorUnits:['marine','reaper'], techlabUnits:['marauder','ghost'], unitUpgrades:['combatShield','concussiveShells'] },
+  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper','ghost'], r:18, canAddon:true, reactorUnits:['marine','reaper'], techlabUnits:['marauder','ghost'], unitUpgrades:['combatShield','concussiveShells','stimPack'] },
   factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','thor'], requires:'barracks', r:18, canAddon:true, reactorUnits:['hellion'], techlabUnits:['siegetank','thor'] },
   starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','raven','battlecruiser'], requires:'factory', r:18, canAddon:true, reactorUnits:['viking','medivac'], techlabUnits:['banshee','raven','battlecruiser'] },
   ghostacademy: { faction:'terran', cost:150, gasCost:50, buildTime:8, name:'Ghost Academy', unlocks:[], r:16, requires:'barracks', isTech:true },
@@ -1244,6 +1281,7 @@ function startGame() {
   document.getElementById('factionScreen').style.display = 'none';
   document.getElementById('gameOverScreen').style.display = 'none';
 
+  applyMapSettings();
   towers = makeTowers();
   mineralPatches = makeMineralPatches();
   gasGeysers = makeGasGeysers();
@@ -1259,8 +1297,8 @@ function startGame() {
   interceptors = [];
   playerUpgrades = { attack: 0, armor: 0 };
   enemyUpgrades = { attack: 0, armor: 0 };
-  playerUnitUpgrades = { combatShield: false, concussiveShells: false, metabolicBoost: false };
-  enemyUnitUpgrades = { combatShield: false, concussiveShells: false, metabolicBoost: false };
+  playerUnitUpgrades = { combatShield: false, concussiveShells: false, stimPack: false, metabolicBoost: false };
+  enemyUnitUpgrades = { combatShield: false, concussiveShells: false, stimPack: false, metabolicBoost: false };
   creepZones = [];
   initFog();
   // Each side gets an implicit "base" building
@@ -1611,7 +1649,7 @@ function findAssignedGeyser(unit) {
 }
 
 function updateWorker(unit, dt) {
-  const moveSpeed = unit.speed * 60;
+  const moveSpeed = unit.speed * WORKER_SPEED_MULT;
 
   // Set homeBase on first frame if not set — assign to least-saturated base
   if (!unit.homeBase) {
@@ -1906,6 +1944,10 @@ function updateAllBuildingQueues(buildings, team, dt) {
       }
       if (item.type === 'upgrade_concussiveShells') {
         (team === 'player' ? playerUnitUpgrades : enemyUnitUpgrades).concussiveShells = true;
+        continue;
+      }
+      if (item.type === 'upgrade_stimPack') {
+        (team === 'player' ? playerUnitUpgrades : enemyUnitUpgrades).stimPack = true;
         continue;
       }
       if (item.type === 'upgrade_metabolicBoost') {
@@ -2303,13 +2345,13 @@ function updateGame(dt) {
       }
       // Move toward target
       const ang = Math.atan2(target.y - i.y, target.x - i.x);
-      i.x += Math.cos(ang) * i.speed * 50 * dt;
-      i.y += Math.sin(ang) * i.speed * 50 * dt;
+      i.x += Math.cos(ang) * i.speed * SPEED_MULT * dt;
+      i.y += Math.sin(ang) * i.speed * SPEED_MULT * dt;
     } else if (target) {
       // Move toward target
       const ang = Math.atan2(target.y - i.y, target.x - i.x);
-      i.x += Math.cos(ang) * i.speed * 50 * dt;
-      i.y += Math.sin(ang) * i.speed * 50 * dt;
+      i.x += Math.cos(ang) * i.speed * SPEED_MULT * dt;
+      i.y += Math.sin(ang) * i.speed * SPEED_MULT * dt;
     } else {
       // Orbit owner
       i.orbitAngle += i.orbitSpeed * dt;
@@ -2397,10 +2439,11 @@ function updateGame(dt) {
     if (unit.fungalRootTimer > 0) effectiveSpeed = 0;
     // Concussive Shells slow
     if (unit.slowTimer > 0) { unit.slowTimer -= dt; effectiveSpeed *= 0.7; }
-    // Stim Pack: Marines auto-stim when engaging
-    if (unit.type === 'marine' && target && unit.stimTimer <= 0 && unit.hp > 15) {
+    // Stim Pack: Marines & Marauders auto-stim when engaging (requires research)
+    const stimUpg = unit.team === 'player' ? playerUnitUpgrades : enemyUnitUpgrades;
+    if ((unit.type === 'marine' || unit.type === 'marauder') && stimUpg.stimPack && target && unit.stimTimer <= 0 && unit.hp > (unit.type === 'marine' ? 15 : 25)) {
       unit.stimTimer = 11;
-      unit.hp -= 10;
+      unit.hp -= (unit.type === 'marine' ? 10 : 20);
       spawnParticle(unit.x, unit.y, '#ff4444', 6);
     }
     if (unit.stimTimer > 0) {
@@ -2557,7 +2600,7 @@ function updateGame(dt) {
         const d = dist(unit, target);
         if (d > effectiveRange) {
           const dir = getSmartDirection(unit, target.x, target.y);
-          moveWithSlide(unit, dir.dx * effectiveSpeed * 50, dir.dy * effectiveSpeed * 50, dt);
+          moveWithSlide(unit, dir.dx * effectiveSpeed * SPEED_MULT, dir.dy * effectiveSpeed * SPEED_MULT, dt);
         }
       }
     } else if (target) {
@@ -2647,14 +2690,14 @@ function updateGame(dt) {
         // Ranged kiting: back up if enemy is too close (same for player and AI units)
         if (effectiveRange > 50 && d < effectiveRange * 0.45 && effectiveSpeed > 0 && !unit.siegeMode) {
           const awayAngle = Math.atan2(unit.y - target.y, unit.x - target.x);
-          const kiteSpeed = effectiveSpeed * 50 * 0.6;
+          const kiteSpeed = effectiveSpeed * SPEED_MULT * 0.6;
           moveWithSlide(unit, Math.cos(awayAngle) * kiteSpeed, Math.sin(awayAngle) * kiteSpeed, dt);
         }
       } else {
         // Zealot charge: burst forward
         if (unit.type === 'zealot' && d > 60 && d < 120 && unit.chargeTimer <= 0) {
           const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
-          const chargeSpeed = effectiveSpeed * 50 * 3;
+          const chargeSpeed = effectiveSpeed * SPEED_MULT * 3;
           moveWithSlide(unit, Math.cos(angle) * chargeSpeed, Math.sin(angle) * chargeSpeed, dt);
           unit.chargeTimer = 5;
           spawnParticle(unit.x, unit.y, '#ffcc00', 5);
@@ -2677,7 +2720,7 @@ function updateGame(dt) {
               goalY = target.y + Math.sin(surroundAngle) * surroundDist;
             }
             const dir = getSmartDirection(unit, goalX, goalY);
-            const moveSpeed = effectiveSpeed * 50;
+            const moveSpeed = effectiveSpeed * SPEED_MULT;
             moveWithSlide(unit, dir.dx * moveSpeed, dir.dy * moveSpeed, dt);
           }
         }
@@ -2735,7 +2778,7 @@ function updateGame(dt) {
           }
         }
         if (!blocked) {
-          const moveSpeed = effectiveSpeed * 50;
+          const moveSpeed = effectiveSpeed * SPEED_MULT;
           const smartDir = getSmartDirection(unit, targetX, targetY);
           moveWithSlide(unit, smartDir.dx * moveSpeed, smartDir.dy * moveSpeed, dt);
         }
@@ -3241,6 +3284,13 @@ function setDifficulty(diff) {
   document.getElementById('diffEasy').style.border = diff === 'easy' ? '1px solid #44ff44' : 'none';
   document.getElementById('diffHard').style.border = diff === 'hard' ? '1px solid #ffaa00' : 'none';
   document.getElementById('diffImpossible').style.border = diff === 'impossible' ? '1px solid #ff4444' : 'none';
+}
+
+function setMap(map) {
+  selectedMap = map;
+  document.getElementById('mapArena').style.border = map === 'arena' ? '1px solid #00d4ff' : 'none';
+  document.getElementById('mapBattlefield').style.border = map === 'battlefield' ? '1px solid #00d4ff' : 'none';
+  document.getElementById('mapDesc').textContent = map === 'arena' ? 'Compact map, slower unit speeds' : 'Large SC2-style map, full unit speeds';
 }
 
 // ---- AI Phase transitions (condition-based, not timer-based) ----
@@ -4050,6 +4100,8 @@ function updateEnemyAI(dt) {
     for (const upgKey of bdef.unitUpgrades) {
       if (enemyUnitUpgrades[upgKey]) continue;
       const ud = UNIT_UPGRADE_DEFS[upgKey];
+      // Tech Lab requirement for AI
+      if (ud.requiresTechLab && b.addon !== 'techlab') continue;
       if (enemyMinerals >= ud.cost && enemyGas >= ud.gasCost) {
         enemyMinerals -= ud.cost;
         enemyGas -= ud.gasCost;
@@ -6621,6 +6673,8 @@ function drawProductionPanel() {
           if (playerUnitUpgrades[upgKey]) continue; // already researched
           const ud = UNIT_UPGRADE_DEFS[upgKey];
           if (!ud) continue;
+          // Tech Lab requirement: skip if no building in group has a tech lab
+          if (ud.requiresTechLab && !builtGroup.some(b => b.addon === 'techlab')) continue;
           if (y > VIEWPORT_H + 10) break;
           const affordable = playerMinerals >= ud.cost && playerGas >= ud.gasCost;
           const researching = builtGroup.some(b => b.queue && b.queue.some(q => q.type === 'upgrade_' + upgKey));
@@ -7057,6 +7111,8 @@ function getPanelButtons() {
       if (bdef.unitUpgrades) {
         for (const upgKey of bdef.unitUpgrades) {
           if (playerUnitUpgrades[upgKey]) continue;
+          const ud = UNIT_UPGRADE_DEFS[upgKey];
+          if (ud && ud.requiresTechLab && !builtGroup.some(b => b.addon === 'techlab')) continue;
           buttons.push({ type: '_unitupg_' + upgKey, x: px + 4, y, w: BTN_W, h: BTN_H - 4, upgKey, builtGroup });
           y += BTN_H + 2;
         }
