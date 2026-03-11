@@ -532,12 +532,35 @@ function initFlowFields() {
   flowFieldToPlayer = buildFlowField(PLAYER_BASE_X, PLAYER_BASE_Y);
 }
 
-// Get the flow field direction at a world position
+// Get the flow field direction at a world position (bilinear interpolation for smoothness)
 function getFlowDir(x, y, field) {
-  const c = Math.floor(x / FF_CELL);
-  const r = Math.floor(y / FF_CELL);
-  if (c < 0 || c >= FF_COLS || r < 0 || r >= FF_ROWS) return null;
-  return field[r * FF_COLS + c];
+  // Convert to fractional cell coordinates
+  const fc = x / FF_CELL - 0.5;
+  const fr = y / FF_CELL - 0.5;
+  const c0 = Math.floor(fc), r0 = Math.floor(fr);
+  const c1 = c0 + 1, r1 = r0 + 1;
+  const tx = fc - c0, ty = fr - r0;
+
+  // Sample four neighboring cells (clamp to bounds)
+  function sample(c, r) {
+    if (c < 0 || c >= FF_COLS || r < 0 || r >= FF_ROWS) return null;
+    return field[r * FF_COLS + c];
+  }
+  const d00 = sample(c0, r0), d10 = sample(c1, r0);
+  const d01 = sample(c0, r1), d11 = sample(c1, r1);
+
+  // Count valid samples and interpolate
+  let dx = 0, dy = 0, w = 0;
+  if (d00) { const bw = (1-tx)*(1-ty); dx += d00.dx*bw; dy += d00.dy*bw; w += bw; }
+  if (d10) { const bw = tx*(1-ty);     dx += d10.dx*bw; dy += d10.dy*bw; w += bw; }
+  if (d01) { const bw = (1-tx)*ty;     dx += d01.dx*bw; dy += d01.dy*bw; w += bw; }
+  if (d11) { const bw = tx*ty;         dx += d11.dx*bw; dy += d11.dy*bw; w += bw; }
+
+  if (w < 0.01) return null;
+  dx /= w; dy /= w;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  if (len < 0.01) return null;
+  return { dx: dx/len, dy: dy/len };
 }
 
 // Blend the direct-to-target direction with flow field for smart pathfinding
@@ -556,7 +579,7 @@ function getSmartDirection(unit, targetX, targetY) {
 
   // Check if direct path is clear (raycast a few steps ahead)
   let pathClear = true;
-  const checkDist = Math.min(len, 60);
+  const checkDist = Math.min(len, 80);
   for (let step = 10; step <= checkDist; step += 10) {
     if (posBlocked(unit.x + directDx * step, unit.y + directDy * step, unit.r)) {
       pathClear = false;
@@ -564,25 +587,40 @@ function getSmartDirection(unit, targetX, targetY) {
     }
   }
 
-  if (pathClear) return { dx: directDx, dy: directDy };
+  let rawDx, rawDy;
+  if (pathClear) {
+    rawDx = directDx;
+    rawDy = directDy;
+  } else {
+    // Path blocked — use flow field
+    // Pick the flow field that points toward the target's general area
+    const distToEnemy = Math.sqrt((targetX - ENEMY_BASE_X) ** 2 + (targetY - ENEMY_BASE_Y) ** 2);
+    const distToPlayer = Math.sqrt((targetX - PLAYER_BASE_X) ** 2 + (targetY - PLAYER_BASE_Y) ** 2);
+    const field = (distToEnemy < distToPlayer) ? flowFieldToEnemy : flowFieldToPlayer;
+    const flowDir = getFlowDir(unit.x, unit.y, field);
 
-  // Path blocked — use flow field
-  const isPlayer = unit.team === 'player';
-  // Pick the flow field that points toward the target's general area
-  const distToEnemy = Math.sqrt((targetX - ENEMY_BASE_X) ** 2 + (targetY - ENEMY_BASE_Y) ** 2);
-  const distToPlayer = Math.sqrt((targetX - PLAYER_BASE_X) ** 2 + (targetY - PLAYER_BASE_Y) ** 2);
-  const field = (distToEnemy < distToPlayer) ? flowFieldToEnemy : flowFieldToPlayer;
-  const flowDir = getFlowDir(unit.x, unit.y, field);
-
-  if (flowDir) {
-    // Blend: 30% direct + 70% flow field (flow dominates near walls)
-    const blendDx = directDx * 0.3 + flowDir.dx * 0.7;
-    const blendDy = directDy * 0.3 + flowDir.dy * 0.7;
-    const bLen = Math.sqrt(blendDx * blendDx + blendDy * blendDy);
-    if (bLen > 0.01) return { dx: blendDx / bLen, dy: blendDy / bLen };
+    if (flowDir) {
+      // Blend: 25% direct + 75% flow field (flow dominates near walls)
+      const blendDx = directDx * 0.25 + flowDir.dx * 0.75;
+      const blendDy = directDy * 0.25 + flowDir.dy * 0.75;
+      const bLen = Math.sqrt(blendDx * blendDx + blendDy * blendDy);
+      if (bLen > 0.01) { rawDx = blendDx / bLen; rawDy = blendDy / bLen; }
+      else { rawDx = directDx; rawDy = directDy; }
+    } else {
+      rawDx = directDx;
+      rawDy = directDy;
+    }
   }
 
-  return { dx: directDx, dy: directDy };
+  // Direction smoothing: exponential moving average to prevent jitter
+  // Use higher smoothing near walls (where oscillation is worst)
+  if (unit._smoothDx === undefined) { unit._smoothDx = rawDx; unit._smoothDy = rawDy; }
+  const smoothFactor = pathClear ? 0.4 : 0.2; // blend toward new direction (lower = smoother)
+  unit._smoothDx += (rawDx - unit._smoothDx) * smoothFactor;
+  unit._smoothDy += (rawDy - unit._smoothDy) * smoothFactor;
+  const sLen = Math.sqrt(unit._smoothDx * unit._smoothDx + unit._smoothDy * unit._smoothDy);
+  if (sLen < 0.01) return { dx: rawDx, dy: rawDy };
+  return { dx: unit._smoothDx / sLen, dy: unit._smoothDy / sLen };
 }
 
 function pointInObstacle(px, py, obs, unitR) {
@@ -642,9 +680,12 @@ function moveWithSlide(unit, vx, vy, dt) {
   // Eject from obstacles if somehow inside one (pushed by separation, spawn, etc.)
   const info = nearestObstacleInfo(unit.x, unit.y, unit.r);
   if (info.penetration > 0) {
-    unit.x += info.nx * (info.penetration + 1);
-    unit.y += info.ny * (info.penetration + 1);
+    unit.x += info.nx * (info.penetration + 0.5);
+    unit.y += info.ny * (info.penetration + 0.5);
   }
+
+  const speed = Math.sqrt(vx * vx + vy * vy);
+  if (speed < 0.01) return;
 
   const nx = unit.x + vx * dt;
   const ny = unit.y + vy * dt;
@@ -652,55 +693,57 @@ function moveWithSlide(unit, vx, vy, dt) {
     unit.x = nx;
     unit.y = ny;
   } else {
-    // Wall-normal sliding: find what we're hitting and slide along the wall
-    const hitInfo = nearestObstacleInfo(nx, ny, unit.r);
-    if (hitInfo.penetration > 0) {
-      // Project velocity onto wall surface (perpendicular to wall normal)
-      const wallTx = -hitInfo.ny, wallTy = hitInfo.nx; // tangent along wall
-      const dot = vx * wallTx + vy * wallTy;
-      const slideX = unit.x + wallTx * dot * dt;
-      const slideY = unit.y + wallTy * dot * dt;
-      if (!posBlocked(slideX, slideY, unit.r)) {
-        unit.x = slideX;
-        unit.y = slideY;
-      } else {
-        // Try reduced slide (corner case)
-        const halfX = unit.x + wallTx * dot * dt * 0.5;
-        const halfY = unit.y + wallTy * dot * dt * 0.5;
-        if (!posBlocked(halfX, halfY, unit.r)) {
-          unit.x = halfX;
-          unit.y = halfY;
+    // Try axis-aligned slides first (often sufficient and very stable)
+    const axisXok = !posBlocked(unit.x + vx * dt, unit.y, unit.r);
+    const axisYok = !posBlocked(unit.x, unit.y + vy * dt, unit.r);
+    if (axisXok && Math.abs(vx) > Math.abs(vy) * 0.3) {
+      unit.x += vx * dt;
+    } else if (axisYok && Math.abs(vy) > Math.abs(vx) * 0.3) {
+      unit.y += vy * dt;
+    } else if (axisXok) {
+      unit.x += vx * dt;
+    } else if (axisYok) {
+      unit.y += vy * dt;
+    } else {
+      // Wall-normal sliding: find what we're hitting and slide along the wall
+      const hitInfo = nearestObstacleInfo(nx, ny, unit.r);
+      if (hitInfo.penetration > 0) {
+        const wallTx = -hitInfo.ny, wallTy = hitInfo.nx;
+        const dot = vx * wallTx + vy * wallTy;
+        const slideX = unit.x + wallTx * dot * dt;
+        const slideY = unit.y + wallTy * dot * dt;
+        if (!posBlocked(slideX, slideY, unit.r)) {
+          unit.x = slideX;
+          unit.y = slideY;
         } else {
-          // Last resort: 16-direction escape toward goal
-          const speed = Math.sqrt(vx*vx + vy*vy) * dt;
-          if (speed > 0.1) {
-            const goalAngle = Math.atan2(vy, vx);
-            // Try angles starting near the goal direction, fanning out
-            for (let i = 1; i <= 8; i++) {
-              for (const sign of [1, -1]) {
-                const a = goalAngle + sign * (i / 8) * Math.PI;
-                const tx = unit.x + Math.cos(a) * speed;
-                const ty = unit.y + Math.sin(a) * speed;
-                if (!posBlocked(tx, ty, unit.r)) {
-                  unit.x = tx;
-                  unit.y = ty;
-                  // Clamp and return early
-                  unit.x = Math.max(25, Math.min(MAP_W - 25, unit.x));
-                  unit.y = Math.max(25, Math.min(GAME_H - 25, unit.y));
-                  return;
+          // Try reduced slide
+          const halfX = unit.x + wallTx * dot * dt * 0.5;
+          const halfY = unit.y + wallTy * dot * dt * 0.5;
+          if (!posBlocked(halfX, halfY, unit.r)) {
+            unit.x = halfX;
+            unit.y = halfY;
+          } else {
+            // Radial escape: try 24 directions fanning out from goal
+            const stepDist = speed * dt;
+            if (stepDist > 0.1) {
+              const goalAngle = Math.atan2(vy, vx);
+              for (let i = 1; i <= 12; i++) {
+                for (const sign of [1, -1]) {
+                  const a = goalAngle + sign * (i / 12) * Math.PI;
+                  const tx = unit.x + Math.cos(a) * stepDist;
+                  const ty = unit.y + Math.sin(a) * stepDist;
+                  if (!posBlocked(tx, ty, unit.r)) {
+                    unit.x = tx;
+                    unit.y = ty;
+                    unit.x = Math.max(25, Math.min(MAP_W - 25, unit.x));
+                    unit.y = Math.max(25, Math.min(GAME_H - 25, unit.y));
+                    return;
+                  }
                 }
               }
             }
           }
         }
-      }
-    } else {
-      // Blocked by something else (arena edge?), try axis slides
-      const sx = unit.x + vx * dt;
-      if (!posBlocked(sx, unit.y, unit.r)) unit.x = sx;
-      else {
-        const sy = unit.y + vy * dt;
-        if (!posBlocked(unit.x, sy, unit.r)) unit.y = sy;
       }
     }
   }
@@ -858,7 +901,7 @@ const BUILDING_DEFS = {
   evolutionchamber:  { faction:'zerg', cost:75, buildTime:10, name:'Evo Chamber', unlocks:[], r:16, isUpgrade:true },
   // TERRAN
   bunker:    { faction:'terran', cost:100, buildTime:6, name:'Bunker', unlocks:[], r:16, isDefense:true, defenseHp:400, defenseDmg:0, defenseRange:140, defenseAtkSpeed:0.8, bunkerGarrison:true, maxGarrison:4 },
-  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper','ghost'], r:18, canAddon:true, reactorUnits:['marine','reaper'], techlabUnits:['marauder','ghost'], unitUpgrades:['combatShield','concussiveShells','stimPack'] },
+  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', requires:'supplydepot', unlocks:['marine','marauder','reaper','ghost'], r:18, canAddon:true, reactorUnits:['marine','reaper'], techlabUnits:['marauder','ghost'], unitUpgrades:['combatShield','concussiveShells','stimPack'] },
   factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','thor'], requires:'barracks', r:18, canAddon:true, reactorUnits:['hellion'], techlabUnits:['siegetank','thor'] },
   starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','raven','battlecruiser'], requires:'factory', r:18, canAddon:true, reactorUnits:['viking','medivac'], techlabUnits:['banshee','raven','battlecruiser'] },
   ghostacademy: { faction:'terran', cost:150, gasCost:50, buildTime:8, name:'Ghost Academy', unlocks:[], r:16, requires:'barracks', isTech:true },
@@ -2837,7 +2880,7 @@ function updateGame(dt) {
   for (const u of units) {
     if (u.dead || u.worker || u.isAir) continue;
     for (const obs of obstacles) {
-      const margin = u.r + 6;
+      const margin = u.r + 4;
       // Find closest point on obstacle rect to unit
       const cx = Math.max(obs.x, Math.min(obs.x + obs.w, u.x));
       const cy = Math.max(obs.y, Math.min(obs.y + obs.h, u.y));
@@ -2845,11 +2888,16 @@ function updateGame(dt) {
       const d2 = dx * dx + dy * dy;
       if (d2 < margin * margin && d2 > 0.1) {
         const d = Math.sqrt(d2);
-        const push = (margin - d) * 2 * dt;
-        const px = (dx / d) * push, py = (dy / d) * push;
-        if (!posBlocked(u.x + px, u.y + py, u.r)) {
-          u.x += px;
-          u.y += py;
+        const overlap = margin - d;
+        // Only push if actually overlapping (not just near)
+        if (overlap > 0) {
+          // Soft push: cap the force to prevent oscillation
+          const push = Math.min(overlap * 0.8 * dt, 1.5 * dt);
+          const px = (dx / d) * push, py = (dy / d) * push;
+          if (!posBlocked(u.x + px, u.y + py, u.r)) {
+            u.x += px;
+            u.y += py;
+          }
         }
       }
     }
@@ -2870,10 +2918,11 @@ function updateGame(dt) {
       const d2 = dx * dx + dy * dy;
       if (d2 < minDist * minDist && d2 > 0.1) {
         const d = Math.sqrt(d2);
+        const overlap = minDist - d;
         const sameTeam = a.team === b.team;
-        // Stronger push for same-team (prevent stacking), weaker for enemies (let them fight)
-        const pushMult = sameTeam ? 1.8 : 0.4;
-        const pushStr = (minDist - d) * pushMult * dt * 30;
+        // Gentler push to prevent oscillation, capped force
+        const pushMult = sameTeam ? 1.2 : 0.3;
+        const pushStr = Math.min(overlap * pushMult * dt * 20, 2.0);
         const nx = dx / d * pushStr;
         const ny = dy / d * pushStr;
         // Only push if destination isn't blocked
@@ -3091,6 +3140,7 @@ const AI_BUILD_ORDERS = {
   terran: [
     { condition: (s) => s.workerCount < 6, action: 'worker' },
     { condition: (s) => s.supplyHeadroom <= 2 && s.pendingSupply === 0, action: 'supply' },
+    { condition: (s) => s.workerCount >= 5 && !s.hasSupplyBuilding && s.prodCount === 0, action: 'supply' },
     { condition: (s) => s.workerCount >= 5 && s.prodCount === 0, action: 'barracks' },
     { condition: (s) => s.workerCount >= 5 && !s.hasGas && s.minerals >= 75, action: 'gas' },
     { condition: (s) => s.workerCount < 8, action: 'worker' },
@@ -3168,6 +3218,8 @@ function aiGetState() {
   });
   const pendingSupply = enemySupplyQueue.length;
   const supplyHeadroom = enemySupplyMax - enemySupply;
+  const supplyTypes = { terran: 'supplydepot', protoss: 'pylon', zerg: 'overlord' };
+  const hasSupplyBuilding = enemyBuildings.some(b => b.type === supplyTypes[enemyFaction] && b.built);
   const playerArmy = getArmyValue('player');
   const enemyArmy = getArmyValue('enemy');
   const playerComp = getPlayerComposition();
@@ -3186,7 +3238,7 @@ function aiGetState() {
   const playerProdAdvantage = playerProdCount - prodCount; // positive = player has more production
   return {
     workerCount, combatCount, combatUnits, prodCount, allProdCount, hasProdBuilding,
-    baseCount, hasGas, gasCount, hasTier2, hasTier3, hasUpgBldg,
+    baseCount, hasGas, gasCount, hasTier2, hasTier3, hasUpgBldg, hasSupplyBuilding,
     pendingSupply, supplyHeadroom, playerArmy, enemyArmy, playerComp,
     nearBase, baseHP, baseMaxHP, minerals: enemyMinerals, gas: enemyGas,
     prodBuildings,

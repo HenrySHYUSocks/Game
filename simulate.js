@@ -38,7 +38,7 @@ const BUILDING_DEFS = {
   refinery:    { faction:'terran', cost:75, buildTime:5, name:'Refinery', unlocks:[], r:14, gasBuilding:true },
   assimilator: { faction:'protoss', cost:75, buildTime:5, name:'Assimilator', unlocks:[], r:14, gasBuilding:true },
   extractor:   { faction:'zerg', cost:25, buildTime:5, name:'Extractor', unlocks:[], r:14, gasBuilding:true },
-  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', unlocks:['marine','marauder','reaper','ghost'], r:18 },
+  barracks:  { faction:'terran', cost:150, buildTime:8, name:'Barracks', requires:'supplydepot', unlocks:['marine','marauder','reaper','ghost'], r:18 },
   factory:   { faction:'terran', cost:200, buildTime:12, name:'Factory', unlocks:['siegetank','hellion','thor'], requires:'barracks', r:18 },
   starport:  { faction:'terran', cost:150, gasCost:100, buildTime:10, name:'Starport', unlocks:['viking','medivac','banshee','raven','battlecruiser'], requires:'factory', r:18 },
   ghostacademy: { faction:'terran', cost:150, gasCost:50, buildTime:8, name:'Ghost Academy', unlocks:[], r:16, requires:'barracks', isTech:true },
