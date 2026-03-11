@@ -1099,6 +1099,8 @@ function spawnUnit(defName, x, y, team) {
       bonusDmg: def.bonusDmg || null,
       bounce: def.bounce || null,
       spawnsBroodlings: def.spawnsBroodlings || false,
+      injectTimer: 0,
+      garrisonCooldown: 0,
     });
     // Apply unit-specific upgrades
     const u = units[units.length - 1];
@@ -4518,6 +4520,7 @@ function drawSC2Unit(type, cx, cy, r, dir, color, team, anim) {
     case 'darktemplar': drawDarkTemplarUnit(cx, cy, r, dir, color, anim); break;
     case 'observer': drawObserverUnit(cx, cy, r, dir, color, anim); break;
     case 'infestor': drawInfestorUnit(cx, cy, r, dir, color, anim); break;
+    case 'queen': drawQueenUnit(cx, cy, r, dir, color, anim); break;
     case 'overseer': drawOverseerUnit(cx, cy, r, dir, color, anim); break;
     case 'colossus': drawColossusUnit(cx, cy, r, dir, color, anim); break;
     case 'reaper': drawReaperUnit(cx, cy, r, dir, color, anim); break;
@@ -5791,6 +5794,36 @@ function drawObserverUnit(cx, cy, r, dir, color, anim) {
   // Center eye
   ctx.fillStyle = '#44aaff';
   ctx.beginPath(); ctx.arc(cx, cy + bob, s*1, 0, Math.PI*2); ctx.fill();
+}
+
+function drawQueenUnit(cx, cy, r, dir, color, anim) {
+  const s = r / 11;
+  const bob = Math.sin(anim*2.5)*s*0.5;
+  // Body - insectoid thorax
+  ctx.fillStyle = '#dd4466';
+  ctx.beginPath(); ctx.ellipse(cx, cy + bob, s*5, s*6, 0, 0, Math.PI*2); ctx.fill();
+  // Abdomen
+  ctx.fillStyle = shadeColor('#dd4466', -20);
+  ctx.beginPath(); ctx.ellipse(cx, cy + s*5*dir + bob, s*4, s*3, 0, 0, Math.PI*2); ctx.fill();
+  // Head
+  ctx.fillStyle = shadeColor('#dd4466', 20);
+  ctx.beginPath(); ctx.arc(cx, cy - s*5*dir + bob, s*3, 0, Math.PI*2); ctx.fill();
+  // Legs (4 pairs)
+  ctx.strokeStyle = shadeColor('#dd4466', -30);
+  ctx.lineWidth = s*1.2;
+  for (let i = -1; i <= 1; i += 2) {
+    for (let j = 0; j < 2; j++) {
+      const ly = cy + (j*3 - 1)*s*2 + bob;
+      ctx.beginPath();
+      ctx.moveTo(cx + i*s*3, ly);
+      ctx.lineTo(cx + i*s*7 + Math.sin(anim*4+j)*s, ly + s*2*dir);
+      ctx.stroke();
+    }
+  }
+  // Eyes
+  ctx.fillStyle = '#ffcc00';
+  ctx.beginPath(); ctx.arc(cx - s*1.2, cy - s*6*dir + bob, s*0.8, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + s*1.2, cy - s*6*dir + bob, s*0.8, 0, Math.PI*2); ctx.fill();
 }
 
 function drawInfestorUnit(cx, cy, r, dir, color, anim) {
