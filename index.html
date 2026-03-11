@@ -2976,12 +2976,23 @@ function aiGetState() {
   const nearBase = units.filter(u => !u.dead && u.team === 'player' && !u.worker && u.y < ENEMY_BASE_Y + 150).length;
   const baseHP = towers.enemy.base.hp;
   const baseMaxHP = towers.enemy.base.maxHp;
+  // ---- Scout player buildings for proactive reactions ----
+  const playerProdBuildings = playerBuildings.filter(b => {
+    const bd = BUILDING_DEFS[b.type];
+    return bd && bd.unlocks && bd.unlocks.length > 0 && !bd.isExpansion && !bd.isThirdExpansion && b.type !== '_base';
+  });
+  const playerProdCount = playerProdBuildings.length;
+  const playerHasAirProd = playerBuildings.some(b => b.type === 'starport' || b.type === 'fleetbeacon' || b.type === 'spire');
+  const playerHasTier2 = playerBuildings.some(b => b.type === 'factory' || b.type === 'robo' || b.type === 'den');
+  const playerHasTier3 = playerBuildings.some(b => b.type === 'starport' || b.type === 'fleetbeacon' || b.type === 'spire');
+  const playerProdAdvantage = playerProdCount - prodCount; // positive = player has more production
   return {
     workerCount, combatCount, combatUnits, prodCount, allProdCount, hasProdBuilding,
     baseCount, hasGas, gasCount, hasTier2, hasTier3, hasUpgBldg,
     pendingSupply, supplyHeadroom, playerArmy, enemyArmy, playerComp,
     nearBase, baseHP, baseMaxHP, minerals: enemyMinerals, gas: enemyGas,
     prodBuildings,
+    playerProdCount, playerHasAirProd, playerHasTier2, playerHasTier3, playerProdAdvantage,
   };
 }
 
@@ -3036,6 +3047,12 @@ function aiArmyUtility(s) {
   // Floating resources = should be building army
   if (s.minerals > 400 && s.combatCount > 0) score += 20;
   if (s.minerals > 600) score += 15;
+  // React to player production advantage - they're building up, we need army NOW
+  if (s.playerProdAdvantage >= 2) score += 25;
+  else if (s.playerProdAdvantage >= 1) score += 10;
+  // Player teching up = incoming stronger units, ramp production
+  if (s.playerHasTier2 && !s.hasTier2) score += 15;
+  if (s.playerHasTier3 && !s.hasTier3) score += 10;
   // Phase weights
   const phaseW = { opening: 0.6, early: 1.1, mid: 1.3, late: 1.5 }[aiPhase] || 1;
   return Math.min(100, score * phaseW * P.phaseWeights.armyW);
@@ -3072,6 +3089,9 @@ function aiTechUtility(s) {
   else if (!s.hasUpgBldg && s.prodCount >= 2 && s.minerals >= 100) score = 40;
   // Upgrade building becomes more valuable as game progresses
   if (s.hasUpgBldg && aiPhase === 'late') score += 10;
+  // React to player teching - don't fall behind in tech
+  if (s.playerHasTier2 && !s.hasTier2) score = Math.max(score, 65);
+  if (s.playerHasTier3 && !s.hasTier3 && s.hasTier2) score = Math.max(score, 55);
   const phaseW = { opening: 0.0, early: 0.6, mid: 1.1, late: 1.3 }[aiPhase] || 0.5;
   return score * phaseW * P.phaseWeights.techW;
 }
@@ -3087,6 +3107,11 @@ function aiDefenseUtility(s) {
   else if (defCount === 0 && s.hasProdBuilding && aiPhase !== 'opening') score = 35;
   // Build defense before expanding
   if (defCount < 1 && hasExpansion('enemy')) score = Math.max(score, 45);
+  // React to player production advantage - they're massing, build defenses
+  if (s.playerProdAdvantage >= 2 && defCount < 2) score = Math.max(score, 60);
+  else if (s.playerProdAdvantage >= 1 && defCount < 1) score = Math.max(score, 45);
+  // Player has air production coming - get defenses up
+  if (s.playerHasAirProd && defCount < 2) score = Math.max(score, 50);
   return score * P.phaseWeights.defenseW;
 }
 
@@ -3138,6 +3163,13 @@ function getUnitWeight(unitType, playerComp) {
   let weight = 2;
 
   // ---- Counter-composition logic ----
+  // Proactive anti-air: react to air BUILDINGS before air units even appear
+  const playerHasAirProd = playerBuildings.some(b => b.type === 'starport' || b.type === 'fleetbeacon' || b.type === 'spire');
+  if (playerHasAirProd && playerComp.air === 0) {
+    // Player is building air production but no air units yet - prepare!
+    if (!def.isAir && def.range > 80) weight += Math.ceil(cw * 0.6); // ground anti-air
+    if (def.isAir && def.range > 60) weight += Math.ceil(cw * 0.4); // air-to-air
+  }
   // Anti-air when player has air units
   if (playerComp.air > 0) {
     const airRatio = playerComp.air / Math.max(1, playerComp.total);
@@ -3269,10 +3301,11 @@ function updateAIArmyGrouping(dt) {
       // Calculate how many we've lost recently (compare to initial attack force)
       const combatHP = inCombat.reduce((sum, u) => sum + u.hp, 0);
       const combatMaxHP = inCombat.reduce((sum, u) => sum + u.maxHp, 0);
-      // If our attacking force is heavily damaged and outnumbered, retreat
+      // If our attacking force is heavily damaged or outnumbered, retreat
       const playerNearby = units.filter(u => !u.dead && u.team === 'player' && !u.worker &&
         u.y < PLAYER_CHOKE_Y + 200).length;
-      if (combatHP < combatMaxHP * 0.35 && playerNearby > inCombat.length * 0.8) {
+      if ((combatHP < combatMaxHP * 0.45 && playerNearby > inCombat.length * 0.6) ||
+          (playerArmy > enemyArmy * 1.5 && inCombat.length >= 2)) {
         enemyStance = 'defend';
         aiGroupTimer = 0;
         return;
@@ -3286,6 +3319,13 @@ function updateAIArmyGrouping(dt) {
     if (nearBase === 0 && enemyCombatUnits.length >= 3) {
       enemyStance = 'group'; // go to grouping stance instead of immediate attack
     }
+    return;
+  }
+
+  // ---- Don't attack into a much larger army - stay defensive and build up ----
+  if (enemyStance !== 'defend' && playerArmy > enemyArmy * 1.8 && enemyCombatUnits.length < 6) {
+    enemyStance = 'defend';
+    aiGroupTimer = 0;
     return;
   }
 
@@ -3313,8 +3353,8 @@ function updateAIArmyGrouping(dt) {
       aiLastAttackTime = gameTime;
       aiGroupTimer = 0;
     }
-  } else if (enemyStance === 'attack' && groupRatio < 0.25 && enemyCombatUnits.length < 3) {
-    // Lost most of our army, regroup
+  } else if (enemyStance === 'attack' && (groupRatio < 0.25 && enemyCombatUnits.length < 3 || playerArmy > enemyArmy * 1.5)) {
+    // Lost most of our army or heavily outmatched, regroup
     enemyStance = 'defend';
     aiGroupTimer = 0;
   }
@@ -3641,6 +3681,9 @@ function updateEnemyAI(dt) {
     else if (count === 1 && s.prodCount >= 1 && aiPhase !== 'opening') shouldBuild = true;
     else if (count === 2 && (aiPhase === 'mid' || aiPhase === 'late') && s.minerals > 250) shouldBuild = true;
     else if (count < 5 && aiPhase === 'late' && s.minerals > 300) shouldBuild = true;
+    // React to player production advantage - match their production capacity
+    else if (s.playerProdAdvantage >= 2 && count < 5 && s.minerals > 150) shouldBuild = true;
+    else if (s.playerProdAdvantage >= 1 && count < 4 && s.minerals > 200) shouldBuild = true;
     // Float detection: if we have lots of minerals and all queues are full, add production
     else if (s.minerals > 500 && count < 6) {
       const allFull = enemyBuildings.filter(b => b.type === btype && b.built).every(b => b.queue.length >= P.maxQueue - 1);
