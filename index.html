@@ -159,34 +159,64 @@ const ctx = canvas.getContext('2d');
 // ---- Layout ----
 let W, H, SCALE;
 const GAME_W = 500;
-let GAME_H = 3200;   // Bigger map — more room for bases, naturals, and mid-field
+let GAME_H = 1100;   // SC2-style map height
+let MAP_W = 1400;     // SC2-style map width (world coordinates, wider than viewport)
 let VIEWPORT_H = 700;
 
 // ---- Map Selection ----
-let selectedMap = 'arena'; // 'arena' (original) or 'battlefield' (larger SC2-style)
-let SPEED_MULT = 35;       // Combat unit speed multiplier (pixels per SC2-speed-unit per second)
-let WORKER_SPEED_MULT = 42; // Worker speed multiplier
+let selectedMap = 'arena';
+let SPEED_MULT = 18;       // Combat unit speed multiplier (slower, realistic SC2 feel)
+let WORKER_SPEED_MULT = 22; // Worker speed multiplier
+
+// ---- SC2-style diagonal base positions ----
+let PLAYER_BASE_X = 1150;
+let PLAYER_BASE_Y = 900;
+let ENEMY_BASE_X = 250;
+let ENEMY_BASE_Y = 200;
+let PLAYER_EXP_X = 900;
+let PLAYER_EXP_Y = 750;
+let ENEMY_EXP_X = 500;
+let ENEMY_EXP_Y = 350;
+let THIRD_EXP_X = 700;
+let THIRD_EXP_Y = 550;
+let PLAYER_CHOKE_X = 800;
+let PLAYER_CHOKE_Y = 650;
+let ENEMY_CHOKE_X = 600;
+let ENEMY_CHOKE_Y = 450;
 
 function applyMapSettings() {
   if (selectedMap === 'battlefield') {
-    GAME_H = 5000;
-    SPEED_MULT = 50;
-    WORKER_SPEED_MULT = 60;
+    MAP_W = 1800;
+    GAME_H = 1400;
+    SPEED_MULT = 20;
+    WORKER_SPEED_MULT = 24;
   } else {
-    GAME_H = 3200;
-    SPEED_MULT = 35;
-    WORKER_SPEED_MULT = 42;
+    MAP_W = 1400;
+    GAME_H = 1100;
+    SPEED_MULT = 18;
+    WORKER_SPEED_MULT = 22;
   }
-  // Recalculate dependent layout constants
-  RIVER_Y = GAME_H / 2;
-  PLAYER_BASE_Y = GAME_H - 400;
-  ENEMY_BASE_Y = 400;
-  PLAYER_EXP_Y = GAME_H - 120;
-  ENEMY_EXP_Y = 120;
-  THIRD_EXP_Y = RIVER_Y;
-  PLAYER_CHOKE_Y = PLAYER_BASE_Y - 200;
-  ENEMY_CHOKE_Y = ENEMY_BASE_Y + 200;
+  // SC2-style diagonal base positions (player bottom-right, enemy top-left)
+  PLAYER_BASE_X = MAP_W - 250;
+  PLAYER_BASE_Y = GAME_H - 200;
+  ENEMY_BASE_X = 250;
+  ENEMY_BASE_Y = 200;
+  // Natural expansions — near main, toward center
+  PLAYER_EXP_X = MAP_W - 500;
+  PLAYER_EXP_Y = GAME_H - 350;
+  ENEMY_EXP_X = 500;
+  ENEMY_EXP_Y = 350;
+  // Third (gold) expansion — contested center
+  THIRD_EXP_X = MAP_W / 2;
+  THIRD_EXP_Y = GAME_H / 2;
+  // Choke points between naturals and mid-map
+  PLAYER_CHOKE_X = MAP_W - 600;
+  PLAYER_CHOKE_Y = GAME_H - 500;
+  ENEMY_CHOKE_X = 600;
+  ENEMY_CHOKE_Y = 450;
+  FOG_COLS = Math.ceil(MAP_W / FOG_CELL);
   FOG_ROWS = Math.ceil(GAME_H / FOG_CELL);
+  FF_COLS = Math.ceil(MAP_W / FF_CELL);
   FF_ROWS = Math.ceil(GAME_H / FF_CELL);
 }
 
@@ -208,9 +238,11 @@ let gameTime = 0;
 let playerFaction = 'terran';
 let enemyFaction = 'zerg';
 
-// ---- Camera ----
+// ---- Camera (2D scrolling) ----
+let cameraX = 0;
 let cameraY = 0;
 let cameraDragging = false;
+let cameraDragLastX = 0;
 let cameraDragLastY = 0;
 let cameraAutoFollow = true;
 
@@ -226,24 +258,16 @@ const PANEL_W = 100;
 const ARENA_W = GAME_W - PANEL_W; // 400
 
 // ---- Arena Layout ----
-let RIVER_Y = GAME_H / 2; // center
-const RIVER_H = 20;
-const BRIDGE_W = 80;
-const LANE_X = [ARENA_W * 0.30, ARENA_W * 0.70];
-
-// Towers / Bases — bases sit with space behind them for naturals
 const TOWER_R = 22;
 const BASE_R = 28;
-let PLAYER_BASE_Y = GAME_H - 400; // base in middle of player zone, natural behind
-let ENEMY_BASE_Y = 400;
 
 function makeTowers() {
   return {
     player: {
-      base:  { x: ARENA_W / 2, y: PLAYER_BASE_Y, hp: 2400, maxHp: 2400, r: BASE_R }
+      base:  { x: PLAYER_BASE_X, y: PLAYER_BASE_Y, hp: 2400, maxHp: 2400, r: BASE_R }
     },
     enemy: {
-      base:  { x: ARENA_W / 2, y: ENEMY_BASE_Y, hp: 2400, maxHp: 2400, r: BASE_R }
+      base:  { x: ENEMY_BASE_X, y: ENEMY_BASE_Y, hp: 2400, maxHp: 2400, r: BASE_R }
     }
   };
 }
@@ -289,7 +313,7 @@ let creepZones = []; // { x, y, radius, team } - Zerg creep areas
 
 // ---- Fog of War ----
 const FOG_CELL = 40; // cell size in game pixels
-const FOG_COLS = Math.ceil(ARENA_W / FOG_CELL);
+let FOG_COLS = Math.ceil(MAP_W / FOG_CELL);
 let FOG_ROWS = Math.ceil(GAME_H / FOG_CELL);
 const VISION_RANGE = 300; // how far units can see
 const BLDG_VISION = 350; // building sight range
@@ -352,7 +376,7 @@ function isFogVisible(x, y) {
 function drawFog() {
   for (let r = 0; r < FOG_ROWS; r++) {
     const cellY = r * FOG_CELL;
-    if (cellY + FOG_CELL < cameraY || cellY > cameraY + VIEWPORT_H) continue; // off-screen
+    if (cellY + FOG_CELL < cameraY || cellY > cameraY + VIEWPORT_H) continue;
     for (let c = 0; c < FOG_COLS; c++) {
       if (fogVisible[r][c]) continue; // fully visible, skip
       const cellX = c * FOG_CELL;
@@ -371,45 +395,56 @@ function drawFog() {
 let obstacles = [];
 
 function makeObstacles() {
+  const midX = MAP_W / 2, midY = GAME_H / 2;
   return [
-    // === PLAYER CHOKE POINT — narrows the path in front of base ===
-    { type: 'rock', x: 20, y: PLAYER_CHOKE_Y - 20, w: 100, h: 40, name: 'Choke Wall' },
-    { type: 'rock', x: ARENA_W - 120, y: PLAYER_CHOKE_Y - 20, w: 100, h: 40, name: 'Choke Wall' },
+    // === PLAYER MAIN BASE — cliff walls surrounding base, ramp to natural ===
+    { type: 'cliff', x: PLAYER_BASE_X - 180, y: PLAYER_BASE_Y - 130, w: 60, h: 260, name: 'Main Cliff L' },
+    { type: 'cliff', x: PLAYER_BASE_X + 120, y: PLAYER_BASE_Y - 80, w: 60, h: 210, name: 'Main Cliff R' },
+    { type: 'cliff', x: PLAYER_BASE_X - 180, y: PLAYER_BASE_Y + 130, w: 360, h: 50, name: 'Main Cliff Bot' },
+    // Ramp opening: gap between left cliff and bottom for natural access
 
-    // === ENEMY CHOKE POINT (mirrored) ===
-    { type: 'rock', x: 20, y: ENEMY_CHOKE_Y - 20, w: 100, h: 40, name: 'Choke Wall' },
-    { type: 'rock', x: ARENA_W - 120, y: ENEMY_CHOKE_Y - 20, w: 100, h: 40, name: 'Choke Wall' },
+    // === ENEMY MAIN BASE — cliff walls (mirrored) ===
+    { type: 'cliff', x: ENEMY_BASE_X + 120, y: ENEMY_BASE_Y - 130, w: 60, h: 260, name: 'Main Cliff R' },
+    { type: 'cliff', x: ENEMY_BASE_X - 180, y: ENEMY_BASE_Y - 130, w: 60, h: 210, name: 'Main Cliff L' },
+    { type: 'cliff', x: ENEMY_BASE_X - 180, y: ENEMY_BASE_Y - 180, w: 360, h: 50, name: 'Main Cliff Top' },
 
-    // === RIVER AREA — rocks funnel units through bridges ===
-    // Large cliffs on right side near river, leaving left corridor open for third exp
-    { type: 'rock', x: ARENA_W - 90, y: RIVER_Y - 70, w: 60, h: 30, name: 'River Cliff' },
-    { type: 'rock', x: ARENA_W - 90, y: RIVER_Y + RIVER_H + 40, w: 60, h: 30, name: 'River Cliff' },
-    // Corridor walls — narrow path to third expansion on left
-    { type: 'rock', x: 170, y: RIVER_Y - 110, w: 25, h: 70, name: 'Corridor Wall' },
-    { type: 'rock', x: 170, y: RIVER_Y + 40, w: 25, h: 70, name: 'Corridor Wall' },
+    // === PLAYER NATURAL CHOKE — narrow passage into the natural ===
+    { type: 'rock', x: PLAYER_CHOKE_X - 100, y: PLAYER_CHOKE_Y - 30, w: 80, h: 60, name: 'Nat Choke L' },
+    { type: 'rock', x: PLAYER_CHOKE_X + 80, y: PLAYER_CHOKE_Y - 20, w: 70, h: 50, name: 'Nat Choke R' },
 
-    // === MID-FIELD TERRAIN — cover and interesting pathing ===
-    // Rocky ridges in mid-field (player side)
-    { type: 'rock', x: 50, y: RIVER_Y + 200, w: 40, h: 20, name: 'Ridge' },
-    { type: 'rock', x: ARENA_W - 90, y: RIVER_Y + 300, w: 40, h: 20, name: 'Ridge' },
-    { type: 'rock', x: ARENA_W / 2 - 20, y: RIVER_Y + 250, w: 40, h: 15, name: 'Center Rock' },
-    // Rocky ridges (enemy side, mirrored)
-    { type: 'rock', x: 50, y: RIVER_Y - 220, w: 40, h: 20, name: 'Ridge' },
-    { type: 'rock', x: ARENA_W - 90, y: RIVER_Y - 320, w: 40, h: 20, name: 'Ridge' },
-    { type: 'rock', x: ARENA_W / 2 - 20, y: RIVER_Y - 265, w: 40, h: 15, name: 'Center Rock' },
+    // === ENEMY NATURAL CHOKE (mirrored) ===
+    { type: 'rock', x: ENEMY_CHOKE_X - 80, y: ENEMY_CHOKE_Y - 30, w: 70, h: 50, name: 'Nat Choke L' },
+    { type: 'rock', x: ENEMY_CHOKE_X + 20, y: ENEMY_CHOKE_Y - 20, w: 80, h: 60, name: 'Nat Choke R' },
 
-    // === FLANKING CLIFFS — create side paths ===
-    { type: 'rock', x: 25, y: RIVER_Y + 450, w: 35, h: 40, name: 'Cliff' },
-    { type: 'rock', x: ARENA_W - 60, y: RIVER_Y + 450, w: 35, h: 40, name: 'Cliff' },
-    { type: 'rock', x: 25, y: RIVER_Y - 490, w: 35, h: 40, name: 'Cliff' },
-    { type: 'rock', x: ARENA_W - 60, y: RIVER_Y - 490, w: 35, h: 40, name: 'Cliff' },
+    // === CENTER MAP TERRAIN — rocks for cover and interesting pathing ===
+    { type: 'rock', x: midX - 60, y: midY - 40, w: 50, h: 30, name: 'Center Rock' },
+    { type: 'rock', x: midX + 20, y: midY + 10, w: 45, h: 25, name: 'Center Rock' },
+    { type: 'rock', x: midX - 30, y: midY + 50, w: 35, h: 20, name: 'Center Rock' },
+
+    // === SIDE TERRAIN — channel units through predictable paths ===
+    // Top-right cliffs (between enemy natural and player side)
+    { type: 'rock', x: MAP_W - 350, y: 300, w: 60, h: 40, name: 'Ridge' },
+    { type: 'rock', x: MAP_W - 250, y: 400, w: 50, h: 35, name: 'Ridge' },
+    // Bottom-left cliffs (between player natural and enemy side)
+    { type: 'rock', x: 300, y: GAME_H - 340, w: 60, h: 40, name: 'Ridge' },
+    { type: 'rock', x: 200, y: GAME_H - 440, w: 50, h: 35, name: 'Ridge' },
+
+    // === MAP EDGE TERRAIN — prevent flanking around the outside ===
+    { type: 'cliff', x: 0, y: 0, w: 20, h: GAME_H, name: 'Wall L' },
+    { type: 'cliff', x: MAP_W - 20, y: 0, w: 20, h: GAME_H, name: 'Wall R' },
+    { type: 'cliff', x: 0, y: 0, w: MAP_W, h: 20, name: 'Wall T' },
+    { type: 'cliff', x: 0, y: GAME_H - 20, w: MAP_W, h: 20, name: 'Wall B' },
+
+    // === WATCHTOWER AREA — open but with flanking cover ===
+    { type: 'rock', x: 150, y: midY - 60, w: 40, h: 35, name: 'Watch Rock' },
+    { type: 'rock', x: MAP_W - 190, y: midY + 25, w: 40, h: 35, name: 'Watch Rock' },
   ];
 }
 
 // ---- Flow Field Pathfinding ----
 // Pre-compute direction grids so units know how to route around obstacles
 const FF_CELL = 20; // cell size in game pixels
-const FF_COLS = Math.ceil(ARENA_W / FF_CELL);
+let FF_COLS = Math.ceil(MAP_W / FF_CELL);
 let FF_ROWS = Math.ceil(GAME_H / FF_CELL);
 let flowFieldToEnemy = null; // flow field directing toward enemy base
 let flowFieldToPlayer = null; // flow field directing toward player base
@@ -424,7 +459,7 @@ function cellBlocked(col, row) {
         cy + half > obs.y && cy - half < obs.y + obs.h) return true;
   }
   // Arena side walls
-  if (cx < 22 || cx > ARENA_W - 10) return true;
+  if (cx < 22 || cx > MAP_W - 22) return true;
   return false;
 }
 
@@ -491,8 +526,10 @@ function buildFlowField(goalX, goalY) {
 }
 
 function initFlowFields() {
-  flowFieldToEnemy = buildFlowField(ARENA_W / 2, ENEMY_BASE_Y);
-  flowFieldToPlayer = buildFlowField(ARENA_W / 2, PLAYER_BASE_Y);
+  FF_COLS = Math.ceil(MAP_W / FF_CELL);
+  FF_ROWS = Math.ceil(GAME_H / FF_CELL);
+  flowFieldToEnemy = buildFlowField(ENEMY_BASE_X, ENEMY_BASE_Y);
+  flowFieldToPlayer = buildFlowField(PLAYER_BASE_X, PLAYER_BASE_Y);
 }
 
 // Get the flow field direction at a world position
@@ -532,7 +569,9 @@ function getSmartDirection(unit, targetX, targetY) {
   // Path blocked — use flow field
   const isPlayer = unit.team === 'player';
   // Pick the flow field that points toward the target's general area
-  const field = (targetY < unit.y) ? flowFieldToEnemy : flowFieldToPlayer;
+  const distToEnemy = Math.sqrt((targetX - ENEMY_BASE_X) ** 2 + (targetY - ENEMY_BASE_Y) ** 2);
+  const distToPlayer = Math.sqrt((targetX - PLAYER_BASE_X) ** 2 + (targetY - PLAYER_BASE_Y) ** 2);
+  const field = (distToEnemy < distToPlayer) ? flowFieldToEnemy : flowFieldToPlayer;
   const flowDir = getFlowDir(unit.x, unit.y, field);
 
   if (flowDir) {
@@ -646,7 +685,7 @@ function moveWithSlide(unit, vx, vy, dt) {
                   unit.x = tx;
                   unit.y = ty;
                   // Clamp and return early
-                  unit.x = Math.max(25, Math.min(ARENA_W - 25, unit.x));
+                  unit.x = Math.max(25, Math.min(MAP_W - 25, unit.x));
                   unit.y = Math.max(25, Math.min(GAME_H - 25, unit.y));
                   return;
                 }
@@ -666,13 +705,13 @@ function moveWithSlide(unit, vx, vy, dt) {
     }
   }
   // Clamp to arena bounds
-  unit.x = Math.max(25, Math.min(ARENA_W - 25, unit.x));
+  unit.x = Math.max(25, Math.min(MAP_W - 25, unit.x));
   unit.y = Math.max(25, Math.min(GAME_H - 25, unit.y));
 }
 
 function drawObstacles() {
   for (const obs of obstacles) {
-    if (!isVisible(obs.y, obs.h + 20)) continue;
+    if (!isVisible2D(obs.x, obs.y, Math.max(obs.w, obs.h) + 20)) continue;
     // Skip building obstacles (buildings draw themselves)
     if (obs.type === 'building') continue;
     if (obs.type === 'cliff') {
@@ -706,95 +745,85 @@ function drawObstacles() {
   }
 }
 
-// Mineral patches: 8 per base, expansion patches behind base, third at river
-// Natural expansions sit BEHIND main bases (safe side) — plenty of room
-let PLAYER_EXP_Y = GAME_H - 120; // behind player base (280 units from main — outside 250 filter)
-let ENEMY_EXP_Y = 120;            // behind enemy base
-// Third (contested) expansion in side corridor near river
-let THIRD_EXP_Y = RIVER_Y;
-const THIRD_EXP_X = 70; // Left corridor
-
-// Choke point Y positions (in front of bases)
-let PLAYER_CHOKE_Y = PLAYER_BASE_Y - 200;
-let ENEMY_CHOKE_Y = ENEMY_BASE_Y + 200;
-
 function makeMineralPatches() {
-  const MBY = PLAYER_BASE_Y - 80; // main minerals above player base
-  const EMBY = ENEMY_BASE_Y + 80;
+  // SC2-style mineral arcs near each base
+  // Player main — minerals to the upper-right of base (against back wall)
+  const PBX = PLAYER_BASE_X, PBY = PLAYER_BASE_Y;
+  const EBX = ENEMY_BASE_X, EBY = ENEMY_BASE_Y;
   return {
     player: [
-      { x: 40,  y: MBY - 10, minerals: 1800, maxMinerals: 1800 },
-      { x: 80,  y: MBY - 20, minerals: 1800, maxMinerals: 1800 },
-      { x: 120, y: MBY - 25, minerals: 1800, maxMinerals: 1800 },
-      { x: 160, y: MBY - 28, minerals: 1800, maxMinerals: 1800 },
-      { x: 200, y: MBY - 28, minerals: 1800, maxMinerals: 1800 },
-      { x: 240, y: MBY - 25, minerals: 1800, maxMinerals: 1800 },
-      { x: 280, y: MBY - 20, minerals: 1800, maxMinerals: 1800 },
-      { x: 320, y: MBY - 10, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 100, y: PBY - 70, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 60,  y: PBY - 80, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 20,  y: PBY - 85, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 20,  y: PBY - 85, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 60,  y: PBY - 80, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 100, y: PBY - 70, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 80,  y: PBY - 75, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 80,  y: PBY - 75, minerals: 1800, maxMinerals: 1800 },
     ],
     enemy: [
-      { x: 40,  y: EMBY + 10, minerals: 1800, maxMinerals: 1800 },
-      { x: 80,  y: EMBY + 20, minerals: 1800, maxMinerals: 1800 },
-      { x: 120, y: EMBY + 25, minerals: 1800, maxMinerals: 1800 },
-      { x: 160, y: EMBY + 28, minerals: 1800, maxMinerals: 1800 },
-      { x: 200, y: EMBY + 28, minerals: 1800, maxMinerals: 1800 },
-      { x: 240, y: EMBY + 25, minerals: 1800, maxMinerals: 1800 },
-      { x: 280, y: EMBY + 20, minerals: 1800, maxMinerals: 1800 },
-      { x: 320, y: EMBY + 10, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 100, y: EBY + 70, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 60,  y: EBY + 80, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 20,  y: EBY + 85, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 20,  y: EBY + 85, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 60,  y: EBY + 80, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 100, y: EBY + 70, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 80,  y: EBY + 75, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 80,  y: EBY + 75, minerals: 1800, maxMinerals: 1800 },
     ],
-    // Natural expansion — BEHIND main base (safe) — identical layout to main base
+    // Natural expansion minerals — near natural base
     playerExpansion: [
-      { x: 40,  y: PLAYER_EXP_Y + 70, minerals: 1800, maxMinerals: 1800 },
-      { x: 80,  y: PLAYER_EXP_Y + 60, minerals: 1800, maxMinerals: 1800 },
-      { x: 120, y: PLAYER_EXP_Y + 55, minerals: 1800, maxMinerals: 1800 },
-      { x: 160, y: PLAYER_EXP_Y + 52, minerals: 1800, maxMinerals: 1800 },
-      { x: 200, y: PLAYER_EXP_Y + 52, minerals: 1800, maxMinerals: 1800 },
-      { x: 240, y: PLAYER_EXP_Y + 55, minerals: 1800, maxMinerals: 1800 },
-      { x: 280, y: PLAYER_EXP_Y + 60, minerals: 1800, maxMinerals: 1800 },
-      { x: 320, y: PLAYER_EXP_Y + 70, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 100, y: PLAYER_EXP_Y - 60, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 60,  y: PLAYER_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 20,  y: PLAYER_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 20,  y: PLAYER_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 60,  y: PLAYER_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 100, y: PLAYER_EXP_Y - 60, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 80,  y: PLAYER_EXP_Y - 65, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 80,  y: PLAYER_EXP_Y - 65, minerals: 1800, maxMinerals: 1800 },
     ],
     enemyExpansion: [
-      { x: 40,  y: ENEMY_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
-      { x: 80,  y: ENEMY_EXP_Y - 60, minerals: 1800, maxMinerals: 1800 },
-      { x: 120, y: ENEMY_EXP_Y - 55, minerals: 1800, maxMinerals: 1800 },
-      { x: 160, y: ENEMY_EXP_Y - 52, minerals: 1800, maxMinerals: 1800 },
-      { x: 200, y: ENEMY_EXP_Y - 52, minerals: 1800, maxMinerals: 1800 },
-      { x: 240, y: ENEMY_EXP_Y - 55, minerals: 1800, maxMinerals: 1800 },
-      { x: 280, y: ENEMY_EXP_Y - 60, minerals: 1800, maxMinerals: 1800 },
-      { x: 320, y: ENEMY_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 100, y: ENEMY_EXP_Y + 60, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 60,  y: ENEMY_EXP_Y + 70, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 20,  y: ENEMY_EXP_Y + 75, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 20,  y: ENEMY_EXP_Y + 75, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 60,  y: ENEMY_EXP_Y + 70, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 100, y: ENEMY_EXP_Y + 60, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 80,  y: ENEMY_EXP_Y + 65, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 80,  y: ENEMY_EXP_Y + 65, minerals: 1800, maxMinerals: 1800 },
     ],
-    // Third contested expansion — GOLD minerals (1.5x yield), near river
+    // Third contested expansion — GOLD minerals (1.5x yield), center of map
     thirdExpansion: [
-      { x: THIRD_EXP_X - 15, y: THIRD_EXP_Y - 55, minerals: 1200, maxMinerals: 1200, gold: true },
-      { x: THIRD_EXP_X + 10, y: THIRD_EXP_Y - 65, minerals: 1200, maxMinerals: 1200, gold: true },
-      { x: THIRD_EXP_X + 35, y: THIRD_EXP_Y - 70, minerals: 1200, maxMinerals: 1200, gold: true },
-      { x: THIRD_EXP_X + 60, y: THIRD_EXP_Y - 72, minerals: 1200, maxMinerals: 1200, gold: true },
-      { x: THIRD_EXP_X + 85, y: THIRD_EXP_Y - 70, minerals: 1200, maxMinerals: 1200, gold: true },
-      { x: THIRD_EXP_X + 110, y: THIRD_EXP_Y - 65, minerals: 1200, maxMinerals: 1200, gold: true },
+      { x: THIRD_EXP_X - 80, y: THIRD_EXP_Y - 55, minerals: 1200, maxMinerals: 1200, gold: true },
+      { x: THIRD_EXP_X - 40, y: THIRD_EXP_Y - 65, minerals: 1200, maxMinerals: 1200, gold: true },
+      { x: THIRD_EXP_X,      y: THIRD_EXP_Y - 70, minerals: 1200, maxMinerals: 1200, gold: true },
+      { x: THIRD_EXP_X + 40, y: THIRD_EXP_Y - 65, minerals: 1200, maxMinerals: 1200, gold: true },
+      { x: THIRD_EXP_X + 80, y: THIRD_EXP_Y - 55, minerals: 1200, maxMinerals: 1200, gold: true },
+      { x: THIRD_EXP_X - 60, y: THIRD_EXP_Y - 60, minerals: 1200, maxMinerals: 1200, gold: true },
     ],
   };
 }
 function makeGasGeysers() {
   return {
     player: [
-      { x: ARENA_W - 50, y: PLAYER_BASE_Y - 40, gas: 2250, maxGas: 2250, workers: 0 },
-      { x: 50, y: PLAYER_BASE_Y + 40, gas: 2250, maxGas: 2250, workers: 0 },
-      // Natural expansion geysers (behind base) — mirror main base layout
-      { x: ARENA_W - 50, y: PLAYER_EXP_Y - 40, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
-      { x: 50, y: PLAYER_EXP_Y + 40, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: PLAYER_BASE_X - 80, y: PLAYER_BASE_Y + 40, gas: 2250, maxGas: 2250, workers: 0 },
+      { x: PLAYER_BASE_X + 80, y: PLAYER_BASE_Y + 30, gas: 2250, maxGas: 2250, workers: 0 },
+      // Natural expansion geysers
+      { x: PLAYER_EXP_X - 80, y: PLAYER_EXP_Y + 40, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: PLAYER_EXP_X + 80, y: PLAYER_EXP_Y + 30, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
       // Third expansion geysers
-      { x: THIRD_EXP_X, y: THIRD_EXP_Y + 30, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
-      { x: THIRD_EXP_X + 110, y: THIRD_EXP_Y + 30, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
+      { x: THIRD_EXP_X - 80, y: THIRD_EXP_Y + 40, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
+      { x: THIRD_EXP_X + 80, y: THIRD_EXP_Y + 40, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
     ],
     enemy: [
-      { x: ARENA_W - 50, y: ENEMY_BASE_Y + 40, gas: 2250, maxGas: 2250, workers: 0 },
-      { x: 50, y: ENEMY_BASE_Y - 40, gas: 2250, maxGas: 2250, workers: 0 },
-      // Natural expansion geysers (behind base) — mirror main base layout
-      { x: ARENA_W - 50, y: ENEMY_EXP_Y + 40, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
-      { x: 50, y: ENEMY_EXP_Y - 40, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: ENEMY_BASE_X - 80, y: ENEMY_BASE_Y - 40, gas: 2250, maxGas: 2250, workers: 0 },
+      { x: ENEMY_BASE_X + 80, y: ENEMY_BASE_Y - 30, gas: 2250, maxGas: 2250, workers: 0 },
+      // Natural expansion geysers
+      { x: ENEMY_EXP_X - 80, y: ENEMY_EXP_Y - 40, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
+      { x: ENEMY_EXP_X + 80, y: ENEMY_EXP_Y - 30, gas: 2250, maxGas: 2250, workers: 0, expansion: true },
       // Third expansion geysers (shared)
-      { x: THIRD_EXP_X, y: THIRD_EXP_Y + 30, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
-      { x: THIRD_EXP_X + 110, y: THIRD_EXP_Y + 30, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
+      { x: THIRD_EXP_X - 80, y: THIRD_EXP_Y + 40, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
+      { x: THIRD_EXP_X + 80, y: THIRD_EXP_Y + 40, gas: 2250, maxGas: 2250, workers: 0, thirdExp: true },
     ],
   };
 }
@@ -958,8 +987,8 @@ let enemySupplyQueue = [];
 let placingBuilding = null; // { type, bdef } when placing a defense building
 
 // ---- Production Building Grid ----
-const PROD_AREA_Y = PLAYER_BASE_Y + 100; // production buildings go behind base
-const PROD_GRID_X = [ARENA_W * 0.25, ARENA_W * 0.75];
+let PROD_AREA_Y = PLAYER_BASE_Y + 60; // production buildings go behind base
+let PROD_GRID_X = [PLAYER_BASE_X - 60, PLAYER_BASE_X + 60];
 const PROD_GRID_SPACING = 35;
 
 // ---- Rally Point System ----
@@ -1302,8 +1331,10 @@ function startGame() {
   creepZones = [];
   initFog();
   // Each side gets an implicit "base" building
-  playerBuildings = [{ type: '_base', x: ARENA_W/2, y: PLAYER_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false }];
-  enemyBuildings = [{ type: '_base', x: ARENA_W/2, y: ENEMY_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false }];
+  PROD_AREA_Y = PLAYER_BASE_Y + 60;
+  PROD_GRID_X = [PLAYER_BASE_X - 60, PLAYER_BASE_X + 60];
+  playerBuildings = [{ type: '_base', x: PLAYER_BASE_X, y: PLAYER_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false }];
+  enemyBuildings = [{ type: '_base', x: ENEMY_BASE_X, y: ENEMY_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false }];
   playerMinerals = 50;
   enemyMinerals = 50;
   playerGas = 0;
@@ -1313,7 +1344,7 @@ function startGame() {
   enemySupply = 0;
   enemySupplyMax = (enemyFaction === 'zerg') ? 14 : 15;
   gameTime = 0;
-  playerRallyX = ARENA_W / 2; // start holding near choke
+  playerRallyX = PLAYER_CHOKE_X; // start holding near choke
   playerRallyY = PLAYER_CHOKE_Y;
   playerMoveMode = 'attackmove';
   moveModeTimer = 0;
@@ -1324,20 +1355,21 @@ function startGame() {
   aiTimer = 0;
   aiArmyValue = 0;
   aiLastAttackTime = 0;
-  cameraY = GAME_H - VIEWPORT_H; // Start viewing player base
+  cameraX = Math.max(0, PLAYER_BASE_X - ARENA_W / 2); // Start viewing player base
+  cameraY = Math.max(0, PLAYER_BASE_Y - VIEWPORT_H / 2);
   cameraAutoFollow = true;
 
   // Start with 6 workers each (SC2 Wings of Liberty)
   const pw = WORKER_TYPE[playerFaction];
   const ew = WORKER_TYPE[enemyFaction];
   for (let i = 0; i < 6; i++) {
-    spawnUnit(pw, ARENA_W/2 + (Math.random()-0.5)*60, PLAYER_BASE_Y + (Math.random()-0.5)*30, 'player');
-    spawnUnit(ew, ARENA_W/2 + (Math.random()-0.5)*60, ENEMY_BASE_Y + (Math.random()-0.5)*30, 'enemy');
+    spawnUnit(pw, PLAYER_BASE_X + (Math.random()-0.5)*60, PLAYER_BASE_Y + (Math.random()-0.5)*30, 'player');
+    spawnUnit(ew, ENEMY_BASE_X + (Math.random()-0.5)*60, ENEMY_BASE_Y + (Math.random()-0.5)*30, 'enemy');
   }
 
   // Initialize creep for Zerg bases
-  if (playerFaction === 'zerg') creepZones.push({ x: ARENA_W/2, y: PLAYER_BASE_Y, radius: 80, team: 'player' });
-  if (enemyFaction === 'zerg') creepZones.push({ x: ARENA_W/2, y: ENEMY_BASE_Y, radius: 80, team: 'enemy' });
+  if (playerFaction === 'zerg') creepZones.push({ x: PLAYER_BASE_X, y: PLAYER_BASE_Y, radius: 80, team: 'player' });
+  if (enemyFaction === 'zerg') creepZones.push({ x: ENEMY_BASE_X, y: ENEMY_BASE_Y, radius: 80, team: 'enemy' });
 
   gameRunning = true;
   lastTime = performance.now();
@@ -1361,9 +1393,9 @@ function countWorkersOnPatch(patch, team) {
 // Get mineral patches belonging to a specific base location (identity-based, not distance)
 function getPatchesForBase(basePos, team) {
   const isPlayer = team === 'player';
-  const mainPos = { x: ARENA_W/2, y: isPlayer ? PLAYER_BASE_Y : ENEMY_BASE_Y };
-  const expPos = { x: ARENA_W/2, y: isPlayer ? PLAYER_EXP_Y : ENEMY_EXP_Y };
-  const thirdPos = { x: THIRD_EXP_X + 50, y: THIRD_EXP_Y };
+  const mainPos = { x: isPlayer ? PLAYER_BASE_X : ENEMY_BASE_X, y: isPlayer ? PLAYER_BASE_Y : ENEMY_BASE_Y };
+  const expPos = { x: isPlayer ? PLAYER_EXP_X : ENEMY_EXP_X, y: isPlayer ? PLAYER_EXP_Y : ENEMY_EXP_Y };
+  const thirdPos = { x: THIRD_EXP_X, y: THIRD_EXP_Y };
   const match = (a, b) => Math.abs(a.x - b.x) < 50 && Math.abs(a.y - b.y) < 50;
 
   if (match(basePos, mainPos)) return isPlayer ? mineralPatches.player : mineralPatches.enemy;
@@ -1497,7 +1529,7 @@ function findTarget(unit) {
 // ---- Worker Mining Logic ----
 function findNearestBase(unit) {
   const buildings = unit.team === 'player' ? playerBuildings : enemyBuildings;
-  let bestD = Infinity, bestX = ARENA_W / 2, bestY = unit.team === 'player' ? PLAYER_BASE_Y : ENEMY_BASE_Y;
+  let bestD = Infinity, bestX = unit.team === 'player' ? PLAYER_BASE_X : ENEMY_BASE_X, bestY = unit.team === 'player' ? PLAYER_BASE_Y : ENEMY_BASE_Y;
   for (const b of buildings) {
     const bdef = BUILDING_DEFS[b.type];
     if (b.type !== '_base' && !(bdef && (bdef.isExpansion || bdef.isThirdExpansion))) continue;
@@ -1513,7 +1545,7 @@ function getTeamBases(team) {
   const buildings = team === 'player' ? playerBuildings : enemyBuildings;
   const bases = [];
   // Main base (always exists as _base)
-  bases.push({ x: ARENA_W/2, y: team === 'player' ? PLAYER_BASE_Y : ENEMY_BASE_Y });
+  bases.push({ x: team === 'player' ? PLAYER_BASE_X : ENEMY_BASE_X, y: team === 'player' ? PLAYER_BASE_Y : ENEMY_BASE_Y });
   // Expansion bases
   for (const b of buildings) {
     const bdef = BUILDING_DEFS[b.type];
@@ -1627,9 +1659,9 @@ function findAssignedGeyser(unit) {
     // Only consider geysers belonging to this worker's homeBase (identity-based)
     if (unit.homeBase) {
       const isPlayer = unit.team === 'player';
-      const mainPos = { x: ARENA_W/2, y: isPlayer ? PLAYER_BASE_Y : ENEMY_BASE_Y };
-      const expPos = { x: ARENA_W/2, y: isPlayer ? PLAYER_EXP_Y : ENEMY_EXP_Y };
-      const thirdPos = { x: THIRD_EXP_X + 50, y: THIRD_EXP_Y };
+      const mainPos = { x: isPlayer ? PLAYER_BASE_X : ENEMY_BASE_X, y: isPlayer ? PLAYER_BASE_Y : ENEMY_BASE_Y };
+      const expPos = { x: isPlayer ? PLAYER_EXP_X : ENEMY_EXP_X, y: isPlayer ? PLAYER_EXP_Y : ENEMY_EXP_Y };
+      const thirdPos = { x: THIRD_EXP_X, y: THIRD_EXP_Y };
       const match = (a, b) => Math.abs(a.x - b.x) < 50 && Math.abs(a.y - b.y) < 50;
       const atMain = match(unit.homeBase, mainPos);
       const atExp = match(unit.homeBase, expPos);
@@ -1955,9 +1987,9 @@ function updateAllBuildingQueues(buildings, team, dt) {
         continue;
       }
       // Spawn unit near the building
+      const baseX = team === 'player' ? PLAYER_BASE_X : ENEMY_BASE_X;
       const baseY = team === 'player' ? PLAYER_BASE_Y : ENEMY_BASE_Y;
-      const lane = Math.random() < 0.5 ? 0 : 1;
-      const x = LANE_X[lane] + (Math.random()-0.5)*30;
+      const x = baseX + (Math.random()-0.5)*60;
       spawnUnit(item.type, x, baseY, team);
     }
   }
@@ -2175,13 +2207,12 @@ function updateUnitAbilities(unit, dt) {
       if (dist(unit, u) < 100) nearbyEnemies++;
     }
     if (nearbyEnemies >= 2) {
-      // Drop force field at nearest bridge
-      let bestBridge = null, bestD = Infinity;
-      for (const lx of LANE_X) {
-        const d = dist(unit, { x: lx, y: RIVER_Y });
-        if (d < bestD) { bestD = d; bestBridge = { x: lx, y: RIVER_Y }; }
-      }
-      if (bestBridge && bestD < 200) {
+      // Drop force field at nearest choke
+      const chokeX = unit.team === 'player' ? PLAYER_CHOKE_X : ENEMY_CHOKE_X;
+      const chokeY = unit.team === 'player' ? PLAYER_CHOKE_Y : ENEMY_CHOKE_Y;
+      const bestBridge = { x: chokeX, y: chokeY };
+      const bestD = dist(unit, bestBridge);
+      if (bestD < 200) {
         forceFields.push({ x: bestBridge.x, y: bestBridge.y, r: 20, life: 4, maxLife: 4, team: unit.team });
         unit.forcefieldTimer = 15;
         spawnParticle(bestBridge.x, bestBridge.y, '#44aaff', 10);
@@ -2734,11 +2765,11 @@ function updateGame(dt) {
       const isPlayer = unit.team === 'player';
       let targetX, targetY;
       if (isPlayer) {
-        targetX = playerRallyX !== null ? playerRallyX : ARENA_W / 2;
+        targetX = playerRallyX !== null ? playerRallyX : PLAYER_CHOKE_X;
         targetY = playerRallyY !== null ? playerRallyY : PLAYER_CHOKE_Y;
       } else {
         if (enemyStance === 'defend') {
-          targetX = ARENA_W / 2;
+          targetX = ENEMY_CHOKE_X;
           targetY = ENEMY_CHOKE_Y;
         } else {
           targetX = towers.player.base.x;
@@ -2852,7 +2883,7 @@ function updateGame(dt) {
         else { b.x -= nx; b.y -= ny; }
       }
     }
-    a.x = Math.max(25, Math.min(ARENA_W - 25, a.x));
+    a.x = Math.max(25, Math.min(MAP_W - 25, a.x));
     a.y = Math.max(25, Math.min(GAME_H - 25, a.y));
   }
 
@@ -2904,17 +2935,23 @@ function updateGame(dt) {
   }
   particles = particles.filter(p => p.life > 0);
 
-  // Update camera
+  // Update camera (2D)
   if (cameraAutoFollow) {
-    // Find frontline player unit (lowest Y = furthest from base)
-    let frontlineY = PLAYER_BASE_Y;
+    // Find frontline player unit (closest to enemy base)
+    let frontlineX = PLAYER_BASE_X, frontlineY = PLAYER_BASE_Y;
+    let bestDist = 0;
     for (const u of units) {
       if (u.dead || u.team !== 'player' || u.worker) continue;
-      if (u.y < frontlineY) frontlineY = u.y;
+      const d = Math.sqrt((u.x - ENEMY_BASE_X) ** 2 + (u.y - ENEMY_BASE_Y) ** 2);
+      const dFromBase = Math.sqrt((u.x - PLAYER_BASE_X) ** 2 + (u.y - PLAYER_BASE_Y) ** 2);
+      if (dFromBase > bestDist) { bestDist = dFromBase; frontlineX = u.x; frontlineY = u.y; }
     }
+    const targetCamX = Math.max(0, Math.min(MAP_W - ARENA_W, (frontlineX + PLAYER_BASE_X) / 2 - ARENA_W / 2));
     const targetCamY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, (frontlineY + PLAYER_BASE_Y) / 2 - VIEWPORT_H / 2));
-    cameraY += (targetCamY - cameraY) * 0.03; // smooth lerp
+    cameraX += (targetCamX - cameraX) * 0.03;
+    cameraY += (targetCamY - cameraY) * 0.03;
   }
+  cameraX = Math.max(0, Math.min(MAP_W - ARENA_W, cameraX));
   cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
 
   // Check win/lose
@@ -3134,7 +3171,7 @@ function aiGetState() {
   const playerArmy = getArmyValue('player');
   const enemyArmy = getArmyValue('enemy');
   const playerComp = getPlayerComposition();
-  const nearBase = units.filter(u => !u.dead && u.team === 'player' && !u.worker && u.y < ENEMY_BASE_Y + 150).length;
+  const nearBase = units.filter(u => !u.dead && u.team === 'player' && !u.worker && dist(u, towers.enemy.base) < 250).length;
   const baseHP = towers.enemy.base.hp;
   const baseMaxHP = towers.enemy.base.maxHp;
   // ---- Scout player buildings for proactive reactions ----
@@ -3290,7 +3327,7 @@ function setMap(map) {
   selectedMap = map;
   document.getElementById('mapArena').style.border = map === 'arena' ? '1px solid #00d4ff' : 'none';
   document.getElementById('mapBattlefield').style.border = map === 'battlefield' ? '1px solid #00d4ff' : 'none';
-  document.getElementById('mapDesc').textContent = map === 'arena' ? 'Compact map, slower unit speeds' : 'Large SC2-style map, full unit speeds';
+  document.getElementById('mapDesc').textContent = map === 'arena' ? 'SC2-style diagonal map (1400x1100)' : 'Extra large battlefield (1800x1400)';
 }
 
 // ---- AI Phase transitions (condition-based, not timer-based) ----
@@ -3514,7 +3551,7 @@ function updateAIArmyGrouping(dt) {
   if (enemyCombatUnits.length === 0) return;
 
   // Rally point is at the enemy choke
-  const rallyX = ARENA_W / 2;
+  const rallyX = ENEMY_CHOKE_X;
   const rallyY = ENEMY_CHOKE_Y;
 
   // Count how many combat units are near rally point
@@ -3530,14 +3567,14 @@ function updateAIArmyGrouping(dt) {
   // ---- Retreat logic: pull back if we're losing the fight ----
   if (P.retreatEnabled && enemyStance === 'attack') {
     // Count units in combat (near player base area)
-    const inCombat = enemyCombatUnits.filter(u => u.y > ENEMY_CHOKE_Y + 100);
+    const inCombat = enemyCombatUnits.filter(u => dist(u, { x: ENEMY_CHOKE_X, y: ENEMY_CHOKE_Y }) > 100);
     if (inCombat.length > 0) {
       // Calculate how many we've lost recently (compare to initial attack force)
       const combatHP = inCombat.reduce((sum, u) => sum + u.hp, 0);
       const combatMaxHP = inCombat.reduce((sum, u) => sum + u.maxHp, 0);
       // If our attacking force is heavily damaged or outnumbered, retreat
       const playerNearby = units.filter(u => !u.dead && u.team === 'player' && !u.worker &&
-        u.y < PLAYER_CHOKE_Y + 200).length;
+        dist(u, { x: PLAYER_CHOKE_X, y: PLAYER_CHOKE_Y }) < 300).length;
       if ((combatHP < combatMaxHP * 0.45 && playerNearby > inCombat.length * 0.6) ||
           (playerArmy > enemyArmy * 1.5 && inCombat.length >= 2)) {
         enemyStance = 'defend';
@@ -3549,8 +3586,8 @@ function updateAIArmyGrouping(dt) {
 
   if (enemyStance === 'defend') {
     // Come out of defend once threat is gone and we have army
-    const nearBase = units.filter(u => !u.dead && u.team === 'player' && !u.worker && u.y < ENEMY_BASE_Y + 150).length;
-    if (nearBase === 0 && enemyCombatUnits.length >= 3) {
+    const nearBase2 = units.filter(u => !u.dead && u.team === 'player' && !u.worker && dist(u, towers.enemy.base) < 250).length;
+    if (nearBase2 === 0 && enemyCombatUnits.length >= 3) {
       enemyStance = 'group'; // go to grouping stance instead of immediate attack
     }
     return;
@@ -3639,8 +3676,8 @@ function aiBuildBuilding(btype) {
     }).length;
     const col = prodCount % 2;
     const row = Math.floor(prodCount / 2);
-    const bx = PROD_GRID_X[col];
-    const by = ENEMY_BASE_Y - 100 + row * PROD_GRID_SPACING; // mirrored from player
+    const bx = ENEMY_BASE_X - 60 + col * 120;
+    const by = ENEMY_BASE_Y - 80 - row * PROD_GRID_SPACING; // mirrored from player
     const hp = bdef.isDefense ? (bdef.defenseHp || 500) : 500;
     const newB = {
       type: btype, x: bx, y: by,
@@ -3699,7 +3736,7 @@ function updateEnemyAI(dt) {
   if (P.groupBeforeAttack && aiPhase === 'early' && s.combatCount >= 4 && enemyStance === 'group' &&
       gameTime - aiLastAttackTime > 20 && gameTime > 60) {
     // Send a harassment attack with just the units near the rally point
-    const rallyX = ARENA_W / 2, rallyY = ENEMY_CHOKE_Y;
+    const rallyX = ENEMY_CHOKE_X, rallyY = ENEMY_CHOKE_Y;
     const nearRally = units.filter(u => !u.dead && u.team === 'enemy' && !u.worker &&
       Math.sqrt((u.x - rallyX) ** 2 + (u.y - rallyY) ** 2) < 150).length;
     if (nearRally >= 3) {
@@ -3848,7 +3885,7 @@ function updateEnemyAI(dt) {
         if (!hasExpansion('enemy') && enemyMinerals >= 400) {
           enemyMinerals -= 400;
           const newEExpB = {
-            type: expansionType, x: ARENA_W / 2, y: ENEMY_EXP_Y,
+            type: expansionType, x: ENEMY_EXP_X, y: ENEMY_EXP_Y,
             hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 15, queue: [],
             energy: 0, maxEnergy: 200, isOrbital: false,
           };
@@ -3861,7 +3898,7 @@ function updateEnemyAI(dt) {
           if (!playerHasThird && enemyMinerals >= 400) {
             enemyMinerals -= 400;
             const newEThirdB = {
-              type: thirdExpType, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
+              type: thirdExpType, x: THIRD_EXP_X, y: THIRD_EXP_Y,
               hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: 20, queue: [],
               energy: 0, maxEnergy: 200, isOrbital: false,
             };
@@ -3932,11 +3969,11 @@ function updateEnemyAI(dt) {
           // Place defenses at choke and near expansion
           let bx, by;
           if (defCount < 2) {
-            bx = LANE_X[defCount % 2];
+            bx = ENEMY_CHOKE_X + (defCount % 2 === 0 ? -40 : 40);
             by = ENEMY_CHOKE_Y;
           } else {
             // Additional defenses near expansion or spread out
-            bx = LANE_X[defCount % 2];
+            bx = ENEMY_CHOKE_X + (defCount % 2 === 0 ? -40 : 40);
             by = hasExpansion('enemy') ? ENEMY_EXP_Y + 40 : ENEMY_CHOKE_Y + 30 * (defCount - 1);
           }
           const newEDefB = {
@@ -4192,6 +4229,11 @@ function endGame(won) {
 function isVisible(y, margin) {
   return y > cameraY - (margin || 50) && y < cameraY + VIEWPORT_H + (margin || 50);
 }
+function isVisible2D(x, y, margin) {
+  const m = margin || 50;
+  return x > cameraX - m && x < cameraX + ARENA_W + m &&
+         y > cameraY - m && y < cameraY + VIEWPORT_H + m;
+}
 
 function render() {
   ctx.save();
@@ -4201,15 +4243,14 @@ function render() {
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, GAME_W, VIEWPORT_H);
 
-  // World-space rendering (offset by camera)
+  // World-space rendering (offset by 2D camera)
   ctx.save();
-  ctx.translate(0, -cameraY);
+  ctx.translate(-cameraX, -cameraY);
 
   // Arena ground (left portion)
   drawArena();
 
-  // River
-  drawRiver();
+  // (no river in SC2-style map)
 
   // Obstacles
   drawObstacles();
@@ -4361,7 +4402,7 @@ function render() {
 
   // Rally point indicator (crosshair at X,Y)
   if (playerRallyY !== null && isVisible(playerRallyY)) {
-    const rpX = playerRallyX !== null ? playerRallyX : ARENA_W / 2;
+    const rpX = playerRallyX !== null ? playerRallyX : PLAYER_CHOKE_X;
     const rpPulse = 0.5 + 0.5 * Math.sin(gameTime * 4);
     const alpha = 0.4 + rpPulse * 0.4;
     const rpColor = playerMoveMode === 'move' ? `rgba(255, 200, 0, ${alpha})` : `rgba(0, 255, 100, ${alpha})`;
@@ -4388,14 +4429,14 @@ function render() {
   // Defense building placement overlay
   if (placingBuilding) {
     ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
-    ctx.fillRect(20, 0, ARENA_W - 40, GAME_H);
+    ctx.fillRect(20, 20, MAP_W - 40, GAME_H - 40);
     ctx.fillStyle = 'rgba(0, 255, 100, 0.9)';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('TAP TO PLACE ' + placingBuilding.bdef.name.toUpperCase(), ARENA_W / 2, VIEWPORT_H / 2 + cameraY);
+    ctx.fillText('TAP TO PLACE ' + placingBuilding.bdef.name.toUpperCase(), cameraX + ARENA_W / 2, cameraY + VIEWPORT_H / 2);
     ctx.font = 'bold 8px monospace';
     ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
-    ctx.fillText('(tap panel to cancel)', ARENA_W / 2, VIEWPORT_H / 2 + cameraY + 16);
+    ctx.fillText('(tap panel to cancel)', cameraX + ARENA_W / 2, cameraY + VIEWPORT_H / 2 + 16);
   }
 
   // Fog of war overlay (disabled)
@@ -4412,106 +4453,88 @@ function render() {
 }
 
 function drawArena() {
-  // Ground
+  // Ground — full SC2-style map
   ctx.fillStyle = '#1e1e3a';
-  ctx.fillRect(20, 20, ARENA_W - 40, GAME_H - 40);
+  ctx.fillRect(0, 0, MAP_W, GAME_H);
 
-  // Player base zone (warm blue tint) — includes area behind base for natural
+  // Player base zone (warm blue tint)
   ctx.fillStyle = 'rgba(35, 45, 75, 0.5)';
-  ctx.fillRect(20, PLAYER_BASE_Y - 200, ARENA_W - 40, GAME_H - PLAYER_BASE_Y + 200);
+  ctx.beginPath();
+  ctx.arc(PLAYER_BASE_X, PLAYER_BASE_Y, 200, 0, Math.PI * 2);
+  ctx.fill();
   // Enemy base zone (warm red tint)
   ctx.fillStyle = 'rgba(75, 35, 45, 0.35)';
-  ctx.fillRect(20, 20, ARENA_W - 40, ENEMY_BASE_Y + 200);
+  ctx.beginPath();
+  ctx.arc(ENEMY_BASE_X, ENEMY_BASE_Y, 200, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Natural expansion areas (behind bases) — same size zone as main base
-  ctx.fillStyle = 'rgba(70, 65, 30, 0.2)';
-  ctx.fillRect(20, PLAYER_EXP_Y - 80, ARENA_W - 40, GAME_H - PLAYER_EXP_Y + 60);  // Player natural
-  ctx.fillRect(20, 20, ARENA_W - 40, ENEMY_EXP_Y + 80);                             // Enemy natural
+  // Natural expansion areas — golden tint
+  ctx.fillStyle = 'rgba(70, 65, 30, 0.25)';
+  ctx.beginPath(); ctx.arc(PLAYER_EXP_X, PLAYER_EXP_Y, 150, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ENEMY_EXP_X, ENEMY_EXP_Y, 150, 0, Math.PI * 2); ctx.fill();
 
-  // Choke point markings
-  ctx.fillStyle = 'rgba(100, 80, 40, 0.15)';
-  ctx.fillRect(100, PLAYER_CHOKE_Y - 10, ARENA_W - 200, 20);
-  ctx.fillRect(100, ENEMY_CHOKE_Y - 10, ARENA_W - 200, 20);
-
-  // Third expansion corridor (left side near river) — gold tint
+  // Third expansion corridor — gold tint
   ctx.fillStyle = 'rgba(120, 90, 20, 0.15)';
-  ctx.fillRect(20, THIRD_EXP_Y - 100, 150, 200);
+  ctx.beginPath(); ctx.arc(THIRD_EXP_X, THIRD_EXP_Y, 120, 0, Math.PI * 2); ctx.fill();
 
-  // Mid-field (between chokes) — slightly different ground
-  ctx.fillStyle = 'rgba(30, 30, 50, 0.3)';
-  ctx.fillRect(20, ENEMY_CHOKE_Y + 40, ARENA_W - 40, PLAYER_CHOKE_Y - ENEMY_CHOKE_Y - 80);
+  // Mid-field — slightly different ground
+  ctx.fillStyle = 'rgba(30, 30, 50, 0.2)';
+  ctx.fillRect(MAP_W * 0.25, GAME_H * 0.3, MAP_W * 0.5, GAME_H * 0.4);
 
   // Grid lines (only draw visible ones)
   ctx.strokeStyle = '#2a2a4e';
   ctx.lineWidth = 0.5;
+  const startX = Math.max(20, Math.floor((cameraX - 10) / 40) * 40);
+  const endX = Math.min(MAP_W, cameraX + ARENA_W + 40);
   const startY = Math.max(20, Math.floor((cameraY - 10) / 40) * 40);
   const endY = Math.min(GAME_H, cameraY + VIEWPORT_H + 40);
-  for (let x = 20; x < ARENA_W - 20; x += 40) {
+  for (let x = startX; x < endX; x += 40) {
     ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
   }
   for (let y = startY; y < endY; y += 40) {
-    ctx.beginPath(); ctx.moveTo(20, y); ctx.lineTo(ARENA_W - 20, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
   }
 
-  // Lane highlights
-  ctx.fillStyle = 'rgba(255,255,255,0.015)';
-  ctx.fillRect(LANE_X[0] - 55, 20, 110, GAME_H - 40);
-  ctx.fillRect(LANE_X[1] - 55, 20, 110, GAME_H - 40);
-
-  // Side walls
-  ctx.fillStyle = '#2a2a55';
-  ctx.fillRect(0, 0, 20, GAME_H);
-  ctx.fillRect(ARENA_W - 8, 0, 8, GAME_H);
-  ctx.fillStyle = '#3a3a66';
-  ctx.fillRect(18, 0, 2, GAME_H);
+  // Map border
+  ctx.strokeStyle = '#3a3a66';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(10, 10, MAP_W - 20, GAME_H - 20);
 
   // Labels
-  if (isVisible(PLAYER_EXP_Y)) {
+  if (isVisible2D(PLAYER_EXP_X, PLAYER_EXP_Y)) {
     ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
     ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('NATURAL', ARENA_W / 2, PLAYER_EXP_Y - 35);
+    ctx.fillText('NATURAL', PLAYER_EXP_X, PLAYER_EXP_Y - 90);
   }
-  if (isVisible(ENEMY_EXP_Y)) {
+  if (isVisible2D(ENEMY_EXP_X, ENEMY_EXP_Y)) {
     ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
     ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('NATURAL', ARENA_W / 2, ENEMY_EXP_Y + 45);
+    ctx.fillText('NATURAL', ENEMY_EXP_X, ENEMY_EXP_Y + 95);
   }
-  if (isVisible(PLAYER_CHOKE_Y)) {
+  if (isVisible2D(PLAYER_CHOKE_X, PLAYER_CHOKE_Y)) {
     ctx.fillStyle = 'rgba(180, 140, 60, 0.2)';
     ctx.font = 'bold 5px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CHOKE', ARENA_W / 2, PLAYER_CHOKE_Y - 25);
+    ctx.fillText('CHOKE', PLAYER_CHOKE_X, PLAYER_CHOKE_Y - 25);
   }
-  if (isVisible(ENEMY_CHOKE_Y)) {
+  if (isVisible2D(ENEMY_CHOKE_X, ENEMY_CHOKE_Y)) {
     ctx.fillStyle = 'rgba(180, 140, 60, 0.2)';
     ctx.font = 'bold 5px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CHOKE', ARENA_W / 2, ENEMY_CHOKE_Y + 30);
+    ctx.fillText('CHOKE', ENEMY_CHOKE_X, ENEMY_CHOKE_Y + 30);
   }
-  if (isVisible(THIRD_EXP_Y)) {
+  if (isVisible2D(THIRD_EXP_X, THIRD_EXP_Y)) {
     ctx.fillStyle = 'rgba(220, 180, 40, 0.35)';
     ctx.font = 'bold 6px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('GOLD EXP', THIRD_EXP_X + 55, THIRD_EXP_Y + 20);
+    ctx.fillText('GOLD EXP', THIRD_EXP_X, THIRD_EXP_Y + 30);
   }
 }
 
 function drawRiver() {
-  // Water
-  const shimmer = Math.sin(gameTime * 2) * 0.1 + 0.4;
-  ctx.fillStyle = `rgba(0, 100, 200, ${shimmer})`;
-  ctx.fillRect(20, RIVER_Y, ARENA_W - 40, RIVER_H);
-
-  // Bridges
-  ctx.fillStyle = '#444466';
-  for (const lx of LANE_X) {
-    ctx.fillRect(lx - BRIDGE_W / 2, RIVER_Y - 2, BRIDGE_W, RIVER_H + 4);
-    ctx.strokeStyle = '#555588';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(lx - BRIDGE_W / 2, RIVER_Y - 2, BRIDGE_W, RIVER_H + 4);
-  }
+  // No river in SC2-style map
 }
 
 function drawTower(t, teamColor, isBase) {
@@ -6926,10 +6949,13 @@ function drawPanelButton(bx, by, type, name, cost, affordable, selected, isBuild
 
 // ---- Minimap ----
 function drawMinimap() {
-  const mmW = 50, mmH = 100;
+  // SC2-style square minimap proportional to map
+  const aspect = MAP_W / GAME_H;
+  const mmH = 80;
+  const mmW = Math.round(mmH * aspect);
   const mmX = ARENA_W - mmW - 5;
   const mmY = VIEWPORT_H - mmH - 5;
-  const scaleX = mmW / ARENA_W;
+  const scaleX = mmW / MAP_W;
   const scaleY = mmH / GAME_H;
 
   // Background
@@ -6938,10 +6964,6 @@ function drawMinimap() {
   ctx.strokeStyle = '#555';
   ctx.lineWidth = 1;
   ctx.strokeRect(mmX, mmY, mmW, mmH);
-
-  // River
-  ctx.fillStyle = 'rgba(0,100,200,0.5)';
-  ctx.fillRect(mmX, mmY + RIVER_Y * scaleY, mmW, 2);
 
   // Obstacles on minimap
   ctx.fillStyle = 'rgba(60,60,80,0.6)';
@@ -6962,7 +6984,7 @@ function drawMinimap() {
 
   // Rally point on minimap
   if (playerRallyY !== null) {
-    const rpX = playerRallyX !== null ? playerRallyX : ARENA_W / 2;
+    const rpX = playerRallyX !== null ? playerRallyX : PLAYER_CHOKE_X;
     ctx.fillStyle = '#00ff66';
     ctx.fillRect(mmX + rpX * scaleX - 1, mmY + playerRallyY * scaleY - 1, 3, 3);
   }
@@ -6987,10 +7009,10 @@ function drawMinimap() {
     ctx.fillRect(mmX + u.x * scaleX, mmY + u.y * scaleY, 1.5, 1.5);
   }
 
-  // Viewport indicator
+  // Viewport indicator (2D rectangle showing camera view)
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = 1;
-  ctx.strokeRect(mmX, mmY + cameraY * scaleY, mmW, VIEWPORT_H * scaleY);
+  ctx.strokeRect(mmX + cameraX * scaleX, mmY + cameraY * scaleY, ARENA_W * scaleX, VIEWPORT_H * scaleY);
 }
 
 function roundRect(ctx, x, y, w, h, r, fill, stroke) {
@@ -7304,7 +7326,7 @@ function handleInput(x, y) {
             playerMinerals -= bdef.cost;
             playerGas -= gasCost;
             const newExpB = {
-              type: btn.type, x: ARENA_W / 2, y: PLAYER_EXP_Y,
+              type: btn.type, x: PLAYER_EXP_X, y: PLAYER_EXP_Y,
               hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
               energy: 0, maxEnergy: 200, isOrbital: false,
             };
@@ -7315,7 +7337,7 @@ function handleInput(x, y) {
             playerMinerals -= bdef.cost;
             playerGas -= gasCost;
             const newThirdB = {
-              type: btn.type, x: THIRD_EXP_X + 50, y: THIRD_EXP_Y,
+              type: btn.type, x: THIRD_EXP_X, y: THIRD_EXP_Y,
               hp: 2000, maxHp: 2000, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
               energy: 0, maxEnergy: 200, isOrbital: false,
             };
@@ -7372,28 +7394,34 @@ function handleInput(x, y) {
     }
   }
 
-  // Click on minimap to jump camera
-  const mmW = 50, mmH = 100;
+  // Click on minimap to jump camera (2D)
+  const aspect = MAP_W / GAME_H;
+  const mmH = 80;
+  const mmW = Math.round(mmH * aspect);
   const mmX = ARENA_W - mmW - 5;
   const mmY = VIEWPORT_H - mmH - 5;
   if (x >= mmX && x <= mmX + mmW && y >= mmY && y <= mmY + mmH) {
-    const clickFrac = (y - mmY) / mmH;
-    cameraY = clickFrac * GAME_H - VIEWPORT_H / 2;
+    const clickFracX = (x - mmX) / mmW;
+    const clickFracY = (y - mmY) / mmH;
+    cameraX = clickFracX * MAP_W - ARENA_W / 2;
+    cameraY = clickFracY * GAME_H - VIEWPORT_H / 2;
+    cameraX = Math.max(0, Math.min(MAP_W - ARENA_W, cameraX));
     cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
     cameraAutoFollow = false;
     return;
   }
 
-  // Click on arena
+  // Click on arena (2D world coordinate conversion)
   if (x < ARENA_W) {
+    const worldX = x + cameraX;
     const worldY = y + cameraY;
-    const wx = Math.max(25, Math.min(ARENA_W - 25, x));
+    const wx = Math.max(25, Math.min(MAP_W - 25, worldX));
     const wy = Math.max(30, Math.min(GAME_H - 30, worldY));
 
     // Defense building placement mode
     if (placingBuilding) {
       // Only allow placement on player's half of the map
-      if (wy < RIVER_Y + 50 || wx < 30 || wx > ARENA_W - 30) {
+      if (dist({ x: wx, y: wy }, { x: PLAYER_BASE_X, y: PLAYER_BASE_Y }) > 400 || wx < 30 || wx > MAP_W - 30) {
         placingBuilding = null;
         return;
       }
@@ -7475,6 +7503,7 @@ canvas.addEventListener('touchstart', (e) => {
     panelTouchMoved = false;
   } else {
     cameraDragging = true;
+    cameraDragLastX = x;
     cameraDragLastY = y;
     cameraAutoFollow = false;
   }
@@ -7488,7 +7517,7 @@ canvas.addEventListener('touchmove', (e) => {
   const dx = x - touchStartX;
   const dy = y - touchStartY;
 
-  if (Math.abs(dy) > 5) touchMoved = true;
+  if (Math.abs(dy) > 5 || Math.abs(dx) > 5) touchMoved = true;
 
   if (x >= ARENA_W) {
     // Panel scroll
@@ -7500,9 +7529,13 @@ canvas.addEventListener('touchmove', (e) => {
       panelTouchMoved = true;
     }
   } else if (cameraDragging) {
+    const dragDx = x - cameraDragLastX;
     const dragDy = y - cameraDragLastY;
+    cameraX -= dragDx;
     cameraY -= dragDy;
+    cameraX = Math.max(0, Math.min(MAP_W - ARENA_W, cameraX));
     cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
+    cameraDragLastX = x;
     cameraDragLastY = y;
   }
 }, { passive: false });
@@ -7528,6 +7561,7 @@ canvas.addEventListener('mousedown', (e) => {
   mouseMoved = false;
   if (x < ARENA_W) {
     cameraDragging = true;
+    cameraDragLastX = x;
     cameraDragLastY = y;
     cameraAutoFollow = false;
   }
@@ -7536,10 +7570,13 @@ canvas.addEventListener('mousedown', (e) => {
 canvas.addEventListener('mousemove', (e) => {
   if (!mouseDown || !gameRunning) return;
   const { x, y } = gameToCanvas(e.clientX, e.clientY);
-  if (Math.abs(y - mouseStartY) > 5) mouseMoved = true;
+  if (Math.abs(y - mouseStartY) > 5 || Math.abs(x - mouseStartX) > 5) mouseMoved = true;
   if (cameraDragging && mouseStartX < ARENA_W) {
+    cameraX -= (x - cameraDragLastX);
     cameraY -= (y - cameraDragLastY);
+    cameraX = Math.max(0, Math.min(MAP_W - ARENA_W, cameraX));
     cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
+    cameraDragLastX = x;
     cameraDragLastY = y;
   } else if (mouseStartX >= ARENA_W) {
     // Panel scroll with mouse drag
@@ -7569,7 +7606,9 @@ canvas.addEventListener('wheel', (e) => {
     panelScroll += e.deltaY * 0.5;
     panelScroll = Math.max(0, panelScroll);
   } else {
+    cameraX += (e.deltaX || 0) * 0.5;
     cameraY += e.deltaY * 0.5;
+    cameraX = Math.max(0, Math.min(MAP_W - ARENA_W, cameraX));
     cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
     cameraAutoFollow = false;
   }
