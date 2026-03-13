@@ -1127,8 +1127,20 @@ function getAvailableBuildings(team) {
     // Production buildings: unlimited (upgrade/tech buildings already filtered above)
     // Check prerequisite
     if (bdef.requires) {
-      const hasReq = buildings.some(b => b.type === bdef.requires && b.built);
-      if (!hasReq) continue;
+      // Supply buildings are background-built (via supply queue, not in buildings array)
+      // so check if supply cap has increased beyond initial value
+      const reqDef = BUILDING_DEFS[bdef.requires];
+      if (reqDef && reqDef.supplyCap && !reqDef.isExpansion && !reqDef.isThirdExpansion) {
+        const faction = bdef.faction;
+        const initialCap = (faction === 'zerg') ? 14 : 15;
+        const currentMax = team === 'player' ? playerSupplyMax : enemySupplyMax;
+        const supplyQueue = team === 'player' ? playerSupplyQueue : enemySupplyQueue;
+        // Requirement met if a supply building has completed (max increased) or is currently building
+        if (currentMax <= initialCap && supplyQueue.length === 0) continue;
+      } else {
+        const hasReq = buildings.some(b => b.type === bdef.requires && b.built);
+        if (!hasReq) continue;
+      }
     }
     available.push(btype);
   }
@@ -3113,7 +3125,8 @@ const AI_PARAMS = {
     maxQueue: 5, supplyBuffer: 12,
     counterWeight: 6,
     incomeBonus: 0,
-    microEnabled: false, // same auto-combat as player
+    microEnabled: true,
+    stutterStep: false,
     groupBeforeAttack: true,
     retreatEnabled: true,
     supplyLookahead: true,
@@ -3127,7 +3140,8 @@ const AI_PARAMS = {
     maxQueue: 6, supplyBuffer: 15,
     counterWeight: 10,
     incomeBonus: 0,
-    microEnabled: false, // same auto-combat as player
+    microEnabled: true,
+    stutterStep: true,
     groupBeforeAttack: true,
     retreatEnabled: true,
     supplyLookahead: true,
@@ -3317,15 +3331,19 @@ function aiExpandUtility(s) {
   if (s.nearBase >= 2) return 0;
   let score = 0;
   // Expand earlier and more aggressively - worker saturation is key without income bonus
-  if (!hasExpansion('enemy') && s.prodCount >= 1 && s.workerCount >= 8) score = 60;
-  else if (hasExpansion('enemy') && !hasThirdExpansion('enemy') && s.prodCount >= 3 && s.workerCount >= 14) score = 45;
+  const expWorkerReq = aiDifficulty === 'impossible' ? 6 : (aiDifficulty === 'hard' ? 7 : 8);
+  if (!hasExpansion('enemy') && s.prodCount >= 1 && s.workerCount >= expWorkerReq) score = 60;
+  else if (hasExpansion('enemy') && !hasThirdExpansion('enemy') && s.prodCount >= 2 && s.workerCount >= 12) score = 45;
   // Boost if we have safe army advantage
   const armyRatio = s.playerArmy > 0 ? s.enemyArmy / s.playerArmy : 2;
   if (armyRatio > 1.2) score += 10;
-  // Punish player expanding: if player expands and we haven't, we need to as well
+  // Punish player expanding: if player expands and we haven't, we need to match immediately
   const playerHasExp = playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isExpansion);
-  if (playerHasExp && !hasExpansion('enemy')) score += 15;
-  const phaseW = { opening: 0.0, early: 0.9, mid: 1.1, late: 0.7 }[aiPhase] || 0.5;
+  if (playerHasExp && !hasExpansion('enemy')) score += 25;
+  // Match player's 3rd expansion
+  const playerHasThird = playerBuildings.some(b => BUILDING_DEFS[b.type] && BUILDING_DEFS[b.type].isThirdExpansion);
+  if (playerHasThird && hasExpansion('enemy') && !hasThirdExpansion('enemy')) score += 20;
+  const phaseW = { opening: 0.0, early: 0.9, mid: 1.2, late: 0.8 }[aiPhase] || 0.5;
   return score * phaseW * P.phaseWeights.expandW;
 }
 
@@ -3335,14 +3353,16 @@ function aiTechUtility(s) {
   let score = 0;
   // Tech earlier to get stronger units (critical without income bonus)
   if (!s.hasTier2 && s.gas >= 40 && s.prodCount >= 1) score = 55;
-  else if (s.hasTier2 && !s.hasTier3 && s.gas >= 100 && s.prodCount >= 2) score = 45;
+  else if (s.hasTier2 && !s.hasTier3 && s.gas >= 80 && s.prodCount >= 2) score = 50;
   else if (!s.hasUpgBldg && s.prodCount >= 2 && s.minerals >= 100) score = 40;
   // Upgrade building becomes more valuable as game progresses
   if (s.hasUpgBldg && aiPhase === 'late') score += 10;
+  // Push for tier 3 aggressively in mid-late game
+  if (s.hasTier2 && !s.hasTier3 && aiPhase === 'mid' && s.prodCount >= 2) score = Math.max(score, 55);
   // React to player teching - don't fall behind in tech
   if (s.playerHasTier2 && !s.hasTier2) score = Math.max(score, 65);
-  if (s.playerHasTier3 && !s.hasTier3 && s.hasTier2) score = Math.max(score, 55);
-  const phaseW = { opening: 0.0, early: 0.6, mid: 1.1, late: 1.3 }[aiPhase] || 0.5;
+  if (s.playerHasTier3 && !s.hasTier3 && s.hasTier2) score = Math.max(score, 60);
+  const phaseW = { opening: 0.0, early: 0.6, mid: 1.2, late: 1.4 }[aiPhase] || 0.5;
   return score * phaseW * P.phaseWeights.techW;
 }
 
@@ -3353,9 +3373,9 @@ function aiDefenseUtility(s) {
   const maxDef = hasExpansion('enemy') ? 5 : 3;
   if (defCount >= maxDef) return 0;
   let score = 0;
-  if (s.nearBase >= 2) score = 80;
-  else if (s.nearBase >= 1) score = 65;
-  else if (defCount === 0 && s.hasProdBuilding && aiPhase !== 'opening') score = 35;
+  if (s.nearBase >= 2) score = 85;
+  else if (s.nearBase >= 1) score = 70;
+  else if (defCount === 0 && s.hasProdBuilding && aiPhase !== 'opening') score = 40;
   // Build defense before expanding
   if (defCount < 1 && hasExpansion('enemy')) score = Math.max(score, 45);
   // React to player production advantage - they're massing, build defenses
@@ -3388,7 +3408,7 @@ function updateAIPhase(s) {
     aiPhase = 'early';
   } else if (aiPhase === 'early' && (hasExpansion('enemy') || s.prodCount >= 3 || s.hasTier2)) {
     aiPhase = 'mid';
-  } else if (aiPhase === 'mid' && (s.hasTier3 || (s.prodCount >= 4 && s.hasTier2))) {
+  } else if (aiPhase === 'mid' && (s.hasTier3 || (s.prodCount >= (aiDifficulty === 'easy' ? 4 : 3) && s.hasTier2))) {
     aiPhase = 'late';
   }
 }
@@ -3484,8 +3504,10 @@ function getUnitWeight(unitType, playerComp) {
     if (def.cost >= 150 && def.cost <= 300) weight += 3; // mid-tier
     if (def.cost <= 75) weight += 1; // still want cheap units for numbers
   } else if (aiPhase === 'late') {
-    if (def.cost >= 200) weight += 4; // big expensive units
-    if (def.cost <= 75 && !def.splash) weight -= 1;
+    if (def.cost >= 200) weight += 5; // big expensive units
+    if (def.cost >= 300) weight += 3; // super units (carriers, BCs, ultras)
+    if (def.isAir && def.cost >= 200) weight += 2; // air superiority late game
+    if (def.cost <= 75 && !def.splash) weight -= 2;
   }
 
   // ---- Army composition balance ----
@@ -3586,12 +3608,80 @@ function getUnitWeight(unitType, playerComp) {
   return Math.max(0, weight);
 }
 
-// ---- AI Micro controller: DISABLED - AI units use same auto-combat as player units ----
-// AI units use identical findTarget(), auto-kiting, and auto-surround logic as player units.
-// No enhanced focus fire, no stutter-step micro, no splash splitting, no spell caster positioning.
-// The AI wins through better macro decisions, not superhuman unit control.
+// ---- AI Micro controller ----
 function updateAIMicro(dt) {
-  // No-op: AI units behave identically to player units in combat
+  const P = AI_PARAMS[aiDifficulty];
+  if (!P.microEnabled) return;
+
+  const enemyCombat = units.filter(u => !u.dead && u.team === 'enemy' && !u.worker);
+  if (enemyCombat.length === 0) return;
+
+  for (const unit of enemyCombat) {
+    const def = UNIT_DEFS[unit.type];
+    if (!def) continue;
+
+    // --- Retreat critically wounded expensive units ---
+    const hpPct = unit.hp / unit.maxHp;
+    const isExpensive = def.cost >= 150 || (def.gasCost && def.gasCost >= 100);
+    const retreatThreshold = isExpensive ? 0.3 : 0.2;
+    if (hpPct < retreatThreshold && !unit.siegeMode && unit.speed > 0) {
+      // Check if enemies are nearby
+      let nearestEnemy = null, nearestD = Infinity;
+      for (const e of units) {
+        if (e.dead || e.team === 'enemy' || e.worker) continue;
+        const d = dist(unit, e);
+        if (d < 200 && d < nearestD) { nearestD = d; nearestEnemy = e; }
+      }
+      if (nearestEnemy && nearestD < 150) {
+        // Flee toward own base
+        const fleeAngle = Math.atan2(ENEMY_CHOKE_Y - unit.y, ENEMY_CHOKE_X - unit.x);
+        const fleeSpeed = unit.speed * SPEED_MULT * 0.9;
+        moveWithSlide(unit, Math.cos(fleeAngle) * fleeSpeed, Math.sin(fleeAngle) * fleeSpeed, dt);
+        unit.target = null; // stop attacking, just run
+        continue;
+      }
+    }
+
+    // --- Focus fire: prefer low-HP targets that are almost dead ---
+    if (unit.target && unit.range > 40) {
+      let bestTarget = null, bestScore = -Infinity;
+      for (const e of units) {
+        if (e.dead || e.team === 'enemy' || e.worker) continue;
+        if (e.cloaked && !isDetected(e, 'enemy')) continue;
+        const d = dist(unit, e);
+        if (d > unit.range + 50) continue;
+        const eDef = UNIT_DEFS[e.type];
+        if (!eDef) continue;
+        // Score: prioritize nearly-dead units, high-value targets, and units already being focused
+        const hpScore = (1 - e.hp / e.maxHp) * 5; // nearly dead = high priority
+        const valueScore = (eDef.cost + (eDef.gasCost || 0)) / 100;
+        const focusScore = (e._focusCount || 0) > 0 ? 2 : 0; // pile on existing focus
+        const distPenalty = d / 200;
+        const score = hpScore + valueScore + focusScore - distPenalty;
+        if (score > bestScore) { bestScore = score; bestTarget = e; }
+      }
+      if (bestTarget && bestTarget !== unit.target) {
+        // Only switch if significantly better target
+        const currentScore = unit.target ? ((1 - unit.target.hp / unit.target.maxHp) * 5) : 0;
+        if (bestScore > currentScore + 2) {
+          unit.target = bestTarget;
+        }
+      }
+    }
+
+    // --- Stutter-step for ranged units: attack-move pattern ---
+    if (P.stutterStep && unit.range > 60 && unit.target && !unit.siegeMode) {
+      const d = dist(unit, unit.target);
+      if (d <= unit.range && unit.atkTimer > 0 && unit.atkTimer > unit.atkSpeed * 0.4) {
+        // Between attacks: kite backward if enemy is closing in
+        if (d < unit.range * 0.7 && unit.speed > 0) {
+          const kiteAngle = Math.atan2(unit.y - unit.target.y, unit.x - unit.target.x);
+          const kiteSpeed = unit.speed * SPEED_MULT * 0.5;
+          moveWithSlide(unit, Math.cos(kiteAngle) * kiteSpeed, Math.sin(kiteAngle) * kiteSpeed, dt);
+        }
+      }
+    }
+  }
 }
 
 // ---- AI Army grouping: wait for army to mass before attacking ----
@@ -3762,7 +3852,8 @@ function updateEnemyAI(dt) {
   updateAIPhase(s);
 
   // ---- Stance: defend when base is threatened, attack via grouping system ----
-  if (s.nearBase >= 2 || s.baseHP < s.baseMaxHP * 0.7) {
+  const defenseThreshold = aiDifficulty === 'easy' ? 2 : 1;
+  if (s.nearBase >= defenseThreshold || s.baseHP < s.baseMaxHP * 0.7) {
     enemyStance = 'defend';
   } else {
     if (!P.groupBeforeAttack) {
@@ -3774,7 +3865,8 @@ function updateEnemyAI(dt) {
     }
   }
   // Rush: attack early with small force if we have enough units
-  if (aiPhase === 'early' && s.combatCount >= 3 && enemyStance !== 'defend' && gameTime - aiLastAttackTime > 12) {
+  const rushMinUnits = aiDifficulty === 'impossible' ? 2 : 3;
+  if (aiPhase === 'early' && s.combatCount >= rushMinUnits && enemyStance !== 'defend' && gameTime - aiLastAttackTime > 12) {
     enemyStance = 'attack';
     aiLastAttackTime = gameTime;
   }
@@ -3785,13 +3877,16 @@ function updateEnemyAI(dt) {
     aiLastAttackTime = gameTime;
   }
   // ---- Early harassment: send small poke squads to pressure player ----
-  if (P.groupBeforeAttack && aiPhase === 'early' && s.combatCount >= 4 && enemyStance === 'group' &&
-      gameTime - aiLastAttackTime > 20 && gameTime > 60) {
+  const harassMinUnits = aiDifficulty === 'impossible' ? 2 : 3;
+  const harassCooldown = aiDifficulty === 'impossible' ? 12 : 18;
+  const harassStartTime = aiDifficulty === 'impossible' ? 40 : 55;
+  if (P.groupBeforeAttack && (aiPhase === 'early' || aiPhase === 'mid') && s.combatCount >= harassMinUnits && enemyStance === 'group' &&
+      gameTime - aiLastAttackTime > harassCooldown && gameTime > harassStartTime) {
     // Send a harassment attack with just the units near the rally point
     const rallyX = ENEMY_CHOKE_X, rallyY = ENEMY_CHOKE_Y;
     const nearRally = units.filter(u => !u.dead && u.team === 'enemy' && !u.worker &&
       Math.sqrt((u.x - rallyX) ** 2 + (u.y - rallyY) ** 2) < 150).length;
-    if (nearRally >= 3) {
+    if (nearRally >= harassMinUnits) {
       enemyStance = 'attack';
       aiLastAttackTime = gameTime;
     }
@@ -3998,8 +4093,9 @@ function updateEnemyAI(dt) {
             if (enemyBuildings.some(b => b.type === btype)) continue;
             // Check prerequisites
             if (bdef.requires && !enemyBuildings.some(b => b.type === bdef.requires && b.built)) continue;
-            // Phase gate: don't build late-game tech too early
-            if ((btype === 'fusioncore' || btype === 'hive' || btype === 'ultraliskcavern' || btype === 'greaterspire') && aiPhase !== 'late') continue;
+            // Phase gate: don't build late-game tech too early (but allow in mid for harder AI)
+            const allowMidTech = aiDifficulty !== 'easy';
+            if ((btype === 'fusioncore' || btype === 'hive' || btype === 'ultraliskcavern' || btype === 'greaterspire') && aiPhase !== 'late' && !(allowMidTech && aiPhase === 'mid')) continue;
             if ((btype === 'infestationpit' || btype === 'armory' || btype === 'darkshrine') && aiPhase === 'early') continue;
             const gasCost = bdef.gasCost || 0;
             if (enemyMinerals >= bdef.cost && enemyGas >= gasCost) {
