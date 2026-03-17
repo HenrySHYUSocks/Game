@@ -159,8 +159,8 @@ const ctx = canvas.getContext('2d');
 // ---- Layout ----
 let W, H, SCALE;
 const GAME_W = 500;
-let GAME_H = 1100;   // SC2-style map height
-let MAP_W = 1400;     // SC2-style map width (world coordinates, wider than viewport)
+let GAME_H = 1400;   // SC2-style map height
+let MAP_W = 1800;     // SC2-style map width (world coordinates, wider than viewport)
 let VIEWPORT_H = 700;
 
 // ---- Map Selection ----
@@ -191,10 +191,10 @@ function applyMapSettings() {
     SPEED_MULT = 20;
     WORKER_SPEED_MULT = 24;
   } else {
-    MAP_W = 1400;
-    GAME_H = 1100;
-    SPEED_MULT = 18;
-    WORKER_SPEED_MULT = 22;
+    MAP_W = 1800;
+    GAME_H = 1400;
+    SPEED_MULT = 20;
+    WORKER_SPEED_MULT = 24;
   }
   // SC2-style diagonal base positions (player bottom-right, enemy top-left)
   PLAYER_BASE_X = MAP_W - 250;
@@ -305,8 +305,8 @@ let enemyUpgrades = { attack: 0, armor: 0 };
 let playerUnitUpgrades = { combatShield: false, concussiveShells: false, stimPack: false, metabolicBoost: false };
 let enemyUnitUpgrades = { combatShield: false, concussiveShells: false, stimPack: false, metabolicBoost: false };
 const UNIT_UPGRADE_DEFS = {
-  combatShield: { name: 'Combat Shield', desc: 'Marine +10 HP', cost: 100, gasCost: 100, time: 15 },
-  concussiveShells: { name: 'Conc. Shells', desc: 'Marauder slow', cost: 50, gasCost: 50, time: 10 },
+  combatShield: { name: 'Combat Shield', desc: 'Marine +10 HP', cost: 100, gasCost: 100, time: 15, requiresTechLab: true },
+  concussiveShells: { name: 'Conc. Shells', desc: 'Marauder slow', cost: 50, gasCost: 50, time: 10, requiresTechLab: true },
   stimPack: { name: 'Stim Pack', desc: '+50% spd/atk, -10HP', cost: 100, gasCost: 100, time: 20, requiresTechLab: true },
   metabolicBoost: { name: 'Met. Boost', desc: 'Zergling +40% spd', cost: 100, gasCost: 100, time: 15 },
 };
@@ -395,50 +395,137 @@ function drawFog() {
 // obstacles are rectangles or circles that block ground unit movement
 let obstacles = [];
 
+// Destructible rocks — can be attacked and destroyed to open paths
+let destructibleRocks = [];
+
+function makeDestructibleRocks() {
+  return [
+    // Backdoor path behind player natural (shortcut to 3rd base)
+    { x: PLAYER_BASE_X - 300, y: PLAYER_BASE_Y - 60, w: 50, h: 40, hp: 200, maxHp: 200, name: 'Rocks (backdoor)' },
+    // Backdoor path behind enemy natural (mirrored)
+    { x: ENEMY_BASE_X + 260, y: ENEMY_BASE_Y + 30, w: 50, h: 40, hp: 200, maxHp: 200, name: 'Rocks (backdoor)' },
+    // Gold base access rocks (center shortcut)
+    { x: THIRD_EXP_X - 25, y: THIRD_EXP_Y + 90, w: 50, h: 35, hp: 200, maxHp: 200, name: 'Rocks (gold)' },
+  ];
+}
+
+// Xel'naga watchtower positions — grant vision in an area when a unit is nearby
+let watchtowers = [];
+function makeWatchtowers() {
+  const midX = MAP_W / 2, midY = GAME_H / 2;
+  return [
+    { x: midX, y: midY - 120, radius: 12, visionRadius: 250, owner: null, name: 'Xel\'naga Tower' },
+    { x: midX, y: midY + 120, radius: 12, visionRadius: 250, owner: null, name: 'Xel\'naga Tower' },
+  ];
+}
+
+// Terrain elevation zones (for visual rendering — elevated ground drawn differently)
+function getElevationZones() {
+  return [
+    // Player main base plateau
+    { cx: PLAYER_BASE_X, cy: PLAYER_BASE_Y, rx: 240, ry: 200, elevation: 2, name: 'Player Main' },
+    // Enemy main base plateau
+    { cx: ENEMY_BASE_X, cy: ENEMY_BASE_Y, rx: 240, ry: 200, elevation: 2, name: 'Enemy Main' },
+    // Player natural (slightly elevated)
+    { cx: PLAYER_EXP_X, cy: PLAYER_EXP_Y, rx: 180, ry: 150, elevation: 1, name: 'Player Natural' },
+    // Enemy natural (slightly elevated)
+    { cx: ENEMY_EXP_X, cy: ENEMY_EXP_Y, rx: 180, ry: 150, elevation: 1, name: 'Enemy Natural' },
+  ];
+}
+
 function makeObstacles() {
   const midX = MAP_W / 2, midY = GAME_H / 2;
   return [
-    // === PLAYER MAIN BASE — cliff walls surrounding base, ramp to natural ===
-    { type: 'cliff', x: PLAYER_BASE_X - 180, y: PLAYER_BASE_Y - 130, w: 60, h: 260, name: 'Main Cliff L' },
-    { type: 'cliff', x: PLAYER_BASE_X + 120, y: PLAYER_BASE_Y - 80, w: 60, h: 210, name: 'Main Cliff R' },
-    { type: 'cliff', x: PLAYER_BASE_X - 180, y: PLAYER_BASE_Y + 130, w: 360, h: 50, name: 'Main Cliff Bot' },
-    // Ramp opening: gap between left cliff and bottom for natural access
+    // =============================================
+    // PLAYER MAIN BASE — elevated plateau with single ramp down
+    // =============================================
+    // Back wall (behind minerals, against map edge)
+    { type: 'cliff', x: PLAYER_BASE_X - 200, y: PLAYER_BASE_Y - 170, w: 400, h: 40, name: 'Main Back Wall' },
+    // Left cliff wall (runs down from back wall)
+    { type: 'cliff', x: PLAYER_BASE_X - 200, y: PLAYER_BASE_Y - 170, w: 45, h: 350, name: 'Main Cliff L' },
+    // Right cliff wall (runs down, leaves ramp gap)
+    { type: 'cliff', x: PLAYER_BASE_X + 155, y: PLAYER_BASE_Y - 170, w: 45, h: 250, name: 'Main Cliff R' },
+    // Bottom-right wall (below ramp, toward map edge)
+    { type: 'cliff', x: PLAYER_BASE_X + 155, y: PLAYER_BASE_Y + 120, w: 45, h: 80, name: 'Main Cliff BR' },
+    // Bottom wall (connects left cliff to ramp area)
+    { type: 'cliff', x: PLAYER_BASE_X - 200, y: PLAYER_BASE_Y + 180, w: 280, h: 40, name: 'Main Cliff Bot' },
+    // RAMP: gap between (PBX+80, PBY+180) and (PBX+155, PBY+80) — diagonal opening
 
-    // === ENEMY MAIN BASE — cliff walls (mirrored) ===
-    { type: 'cliff', x: ENEMY_BASE_X + 120, y: ENEMY_BASE_Y - 130, w: 60, h: 260, name: 'Main Cliff R' },
-    { type: 'cliff', x: ENEMY_BASE_X - 180, y: ENEMY_BASE_Y - 130, w: 60, h: 210, name: 'Main Cliff L' },
-    { type: 'cliff', x: ENEMY_BASE_X - 180, y: ENEMY_BASE_Y - 180, w: 360, h: 50, name: 'Main Cliff Top' },
+    // =============================================
+    // ENEMY MAIN BASE — mirrored elevated plateau
+    // =============================================
+    // Back wall (behind minerals, against map edge)
+    { type: 'cliff', x: ENEMY_BASE_X - 200, y: ENEMY_BASE_Y + 130, w: 400, h: 40, name: 'Main Back Wall' },
+    // Right cliff wall
+    { type: 'cliff', x: ENEMY_BASE_X + 155, y: ENEMY_BASE_Y - 180, w: 45, h: 350, name: 'Main Cliff R' },
+    // Left cliff wall (leaves ramp gap)
+    { type: 'cliff', x: ENEMY_BASE_X - 200, y: ENEMY_BASE_Y - 80, w: 45, h: 250, name: 'Main Cliff L' },
+    // Top-left wall (below ramp, toward map edge)
+    { type: 'cliff', x: ENEMY_BASE_X - 200, y: ENEMY_BASE_Y - 200, w: 45, h: 80, name: 'Main Cliff TL' },
+    // Top wall (connects right cliff to ramp area)
+    { type: 'cliff', x: ENEMY_BASE_X - 80, y: ENEMY_BASE_Y - 220, w: 280, h: 40, name: 'Main Cliff Top' },
 
-    // === PLAYER NATURAL CHOKE — narrow passage into the natural ===
-    { type: 'rock', x: PLAYER_CHOKE_X - 100, y: PLAYER_CHOKE_Y - 30, w: 80, h: 60, name: 'Nat Choke L' },
-    { type: 'rock', x: PLAYER_CHOKE_X + 80, y: PLAYER_CHOKE_Y - 20, w: 70, h: 50, name: 'Nat Choke R' },
+    // =============================================
+    // PLAYER NATURAL CHOKE — wall-off point near natural expansion
+    // =============================================
+    { type: 'cliff', x: PLAYER_CHOKE_X - 120, y: PLAYER_CHOKE_Y - 25, w: 100, h: 50, name: 'Nat Choke L' },
+    { type: 'cliff', x: PLAYER_CHOKE_X + 80, y: PLAYER_CHOKE_Y - 25, w: 100, h: 50, name: 'Nat Choke R' },
+    // Gap of ~60px between them for wall-off
 
-    // === ENEMY NATURAL CHOKE (mirrored) ===
-    { type: 'rock', x: ENEMY_CHOKE_X - 80, y: ENEMY_CHOKE_Y - 30, w: 70, h: 50, name: 'Nat Choke L' },
-    { type: 'rock', x: ENEMY_CHOKE_X + 20, y: ENEMY_CHOKE_Y - 20, w: 80, h: 60, name: 'Nat Choke R' },
+    // =============================================
+    // ENEMY NATURAL CHOKE (mirrored)
+    // =============================================
+    { type: 'cliff', x: ENEMY_CHOKE_X - 120, y: ENEMY_CHOKE_Y - 25, w: 100, h: 50, name: 'Nat Choke L' },
+    { type: 'cliff', x: ENEMY_CHOKE_X + 80, y: ENEMY_CHOKE_Y - 25, w: 100, h: 50, name: 'Nat Choke R' },
 
-    // === CENTER MAP TERRAIN — rocks for cover and interesting pathing ===
-    { type: 'rock', x: midX - 60, y: midY - 40, w: 50, h: 30, name: 'Center Rock' },
-    { type: 'rock', x: midX + 20, y: midY + 10, w: 45, h: 25, name: 'Center Rock' },
-    { type: 'rock', x: midX - 30, y: midY + 50, w: 35, h: 20, name: 'Center Rock' },
+    // =============================================
+    // CENTER MAP — two lanes separated by terrain ridge
+    // =============================================
+    // Central ridge (divides map into upper and lower attack paths)
+    { type: 'cliff', x: midX - 80, y: midY - 30, w: 160, h: 60, name: 'Center Ridge' },
+    // Rocks flanking the ridge for additional cover
+    { type: 'rock', x: midX - 140, y: midY - 50, w: 50, h: 40, name: 'Center Rock L' },
+    { type: 'rock', x: midX + 100, y: midY + 10, w: 50, h: 40, name: 'Center Rock R' },
 
-    // === SIDE TERRAIN — channel units through predictable paths ===
-    // Top-right cliffs (between enemy natural and player side)
-    { type: 'rock', x: MAP_W - 350, y: 300, w: 60, h: 40, name: 'Ridge' },
-    { type: 'rock', x: MAP_W - 250, y: 400, w: 50, h: 35, name: 'Ridge' },
-    // Bottom-left cliffs (between player natural and enemy side)
-    { type: 'rock', x: 300, y: GAME_H - 340, w: 60, h: 40, name: 'Ridge' },
-    { type: 'rock', x: 200, y: GAME_H - 440, w: 50, h: 35, name: 'Ridge' },
+    // =============================================
+    // SIDE PATHS — flanking routes along map edges
+    // =============================================
+    // Top edge path (enemy side → player side) — narrow with rocks
+    { type: 'cliff', x: MAP_W - 400, y: 80, w: 80, h: 120, name: 'Top Path Cliff' },
+    { type: 'rock', x: MAP_W - 500, y: 180, w: 60, h: 45, name: 'Top Path Rock' },
+    { type: 'rock', x: MAP_W - 300, y: 250, w: 55, h: 40, name: 'Top Path Rock 2' },
 
-    // === MAP EDGE TERRAIN — prevent flanking around the outside ===
-    { type: 'cliff', x: 0, y: 0, w: 20, h: GAME_H, name: 'Wall L' },
-    { type: 'cliff', x: MAP_W - 20, y: 0, w: 20, h: GAME_H, name: 'Wall R' },
-    { type: 'cliff', x: 0, y: 0, w: MAP_W, h: 20, name: 'Wall T' },
-    { type: 'cliff', x: 0, y: GAME_H - 20, w: MAP_W, h: 20, name: 'Wall B' },
+    // Bottom edge path (player side → enemy side) — narrow with rocks
+    { type: 'cliff', x: 320, y: GAME_H - 200, w: 80, h: 120, name: 'Bot Path Cliff' },
+    { type: 'rock', x: 440, y: GAME_H - 220, w: 60, h: 45, name: 'Bot Path Rock' },
+    { type: 'rock', x: 240, y: GAME_H - 290, w: 55, h: 40, name: 'Bot Path Rock 2' },
 
-    // === WATCHTOWER AREA — open but with flanking cover ===
-    { type: 'rock', x: 150, y: midY - 60, w: 40, h: 35, name: 'Watch Rock' },
-    { type: 'rock', x: MAP_W - 190, y: midY + 25, w: 40, h: 35, name: 'Watch Rock' },
+    // =============================================
+    // THIRD BASE TERRAIN — rocks near gold expansion
+    // =============================================
+    { type: 'rock', x: THIRD_EXP_X - 130, y: THIRD_EXP_Y - 40, w: 40, h: 60, name: 'Gold Rock L' },
+    { type: 'rock', x: THIRD_EXP_X + 100, y: THIRD_EXP_Y - 30, w: 40, h: 50, name: 'Gold Rock R' },
+
+    // =============================================
+    // MAP EDGE WALLS — thicker borders
+    // =============================================
+    { type: 'cliff', x: 0, y: 0, w: 25, h: GAME_H, name: 'Wall L' },
+    { type: 'cliff', x: MAP_W - 25, y: 0, w: 25, h: GAME_H, name: 'Wall R' },
+    { type: 'cliff', x: 0, y: 0, w: MAP_W, h: 25, name: 'Wall T' },
+    { type: 'cliff', x: 0, y: GAME_H - 25, w: MAP_W, h: 25, name: 'Wall B' },
+
+    // =============================================
+    // XELNAGA TOWER AREA — open but with approach cover
+    // =============================================
+    { type: 'rock', x: midX - 100, y: midY - 160, w: 35, h: 30, name: 'Tower Rock' },
+    { type: 'rock', x: midX + 70, y: midY + 130, w: 35, h: 30, name: 'Tower Rock' },
+
+    // =============================================
+    // HIGH GROUND RIDGES — create interesting map geometry
+    // =============================================
+    // Ridge between player natural and center (forces path choice)
+    { type: 'cliff', x: MAP_W * 0.55, y: GAME_H * 0.55, w: 100, h: 40, name: 'Mid Ridge P' },
+    { type: 'cliff', x: MAP_W * 0.35, y: GAME_H * 0.38, w: 100, h: 40, name: 'Mid Ridge E' },
   ];
 }
 
@@ -759,33 +846,120 @@ function drawObstacles() {
     // Skip building obstacles (buildings draw themselves)
     if (obs.type === 'building') continue;
     if (obs.type === 'cliff') {
-      // Cliff/ramp walls — thicker, more imposing
-      ctx.fillStyle = '#2a2a40';
+      // Cliff walls — imposing terrain edges with 3D effect
+      const isWall = obs.name && obs.name.startsWith('Wall');
+      ctx.fillStyle = isWall ? '#181828' : '#2a2a42';
       ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-      ctx.fillStyle = '#3a3a55';
-      ctx.fillRect(obs.x + 1, obs.y + 1, obs.w - 2, 4);
-      ctx.fillStyle = '#1a1a30';
-      ctx.fillRect(obs.x + 1, obs.y + obs.h - 4, obs.w - 2, 3);
-      // Edge highlight
-      ctx.strokeStyle = '#4a4a65';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+      if (!isWall) {
+        // Top highlight (lit edge)
+        ctx.fillStyle = '#3d3d5a';
+        ctx.fillRect(obs.x + 1, obs.y + 1, obs.w - 2, 5);
+        // Bottom shadow
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(obs.x + 1, obs.y + obs.h - 5, obs.w - 2, 4);
+        // Left highlight
+        ctx.fillStyle = '#353550';
+        ctx.fillRect(obs.x + 1, obs.y + 6, 3, obs.h - 11);
+        // Edge outline
+        ctx.strokeStyle = '#4a4a68';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+        // Texture lines
+        ctx.strokeStyle = 'rgba(60,60,85,0.5)';
+        ctx.lineWidth = 0.5;
+        for (let ty = obs.y + 12; ty < obs.y + obs.h - 4; ty += 10) {
+          ctx.beginPath();
+          ctx.moveTo(obs.x + 4, ty);
+          ctx.lineTo(obs.x + obs.w - 4, ty + 2);
+          ctx.stroke();
+        }
+      }
     } else {
-      // Rocky terrain
-      ctx.fillStyle = '#3a3a55';
-      ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-      ctx.fillStyle = '#4a4a65';
-      ctx.fillRect(obs.x + 2, obs.y + 2, obs.w - 4, 3);
-      ctx.fillStyle = '#2a2a45';
-      ctx.fillRect(obs.x + 2, obs.y + obs.h - 4, obs.w - 4, 3);
-      ctx.strokeStyle = '#555577';
+      // Rocky terrain — more natural looking
+      const isDestructible = !!obs.destructibleRef;
+      ctx.fillStyle = isDestructible ? '#5a4a30' : '#3a3a55';
+      // Draw slightly rounded rectangle
+      const rx = obs.x, ry = obs.y, rw = obs.w, rh = obs.h, cr = 4;
+      ctx.beginPath();
+      ctx.moveTo(rx + cr, ry);
+      ctx.lineTo(rx + rw - cr, ry);
+      ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + cr);
+      ctx.lineTo(rx + rw, ry + rh - cr);
+      ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - cr, ry + rh);
+      ctx.lineTo(rx + cr, ry + rh);
+      ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - cr);
+      ctx.lineTo(rx, ry + cr);
+      ctx.quadraticCurveTo(rx, ry, rx + cr, ry);
+      ctx.fill();
+      // Top highlight
+      ctx.fillStyle = isDestructible ? '#6a5a3a' : '#4a4a65';
+      ctx.fillRect(obs.x + 3, obs.y + 2, obs.w - 6, 4);
+      // Bottom shadow
+      ctx.fillStyle = isDestructible ? '#3a3020' : '#2a2a45';
+      ctx.fillRect(obs.x + 3, obs.y + obs.h - 5, obs.w - 6, 3);
+      // Rock texture
+      ctx.strokeStyle = isDestructible ? '#7a6a44' : '#555577';
       ctx.lineWidth = 0.5;
       ctx.beginPath();
-      ctx.moveTo(obs.x + obs.w * 0.3, obs.y + 3);
-      ctx.lineTo(obs.x + obs.w * 0.5, obs.y + obs.h * 0.6);
-      ctx.lineTo(obs.x + obs.w * 0.7, obs.y + obs.h - 3);
+      ctx.moveTo(obs.x + obs.w * 0.2, obs.y + 4);
+      ctx.lineTo(obs.x + obs.w * 0.4, obs.y + obs.h * 0.5);
+      ctx.lineTo(obs.x + obs.w * 0.6, obs.y + obs.h * 0.3);
+      ctx.lineTo(obs.x + obs.w * 0.8, obs.y + obs.h - 4);
       ctx.stroke();
+      // Destructible rock HP bar
+      if (isDestructible) {
+        const dr = obs.destructibleRef;
+        if (dr.hp < dr.maxHp) {
+          const barW = obs.w;
+          const barH = 3;
+          const barX = obs.x;
+          const barY = obs.y - 6;
+          ctx.fillStyle = '#333';
+          ctx.fillRect(barX, barY, barW, barH);
+          ctx.fillStyle = '#cc8833';
+          ctx.fillRect(barX, barY, barW * (dr.hp / dr.maxHp), barH);
+        }
+        // "ROCKS" label
+        ctx.fillStyle = '#cc9944';
+        ctx.font = 'bold 5px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('ROCKS', obs.x + obs.w/2, obs.y - 8);
+      }
     }
+  }
+
+  // Draw Xel'naga Watchtowers
+  for (const wt of watchtowers) {
+    if (!isVisible2D(wt.x, wt.y, wt.radius + 20)) continue;
+    // Vision radius indicator
+    if (wt.owner) {
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = wt.owner === 'player' ? '#4488ff' : '#ff4444';
+      ctx.beginPath();
+      ctx.arc(wt.x, wt.y, wt.visionRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // Tower base
+    ctx.fillStyle = '#444460';
+    ctx.beginPath();
+    ctx.arc(wt.x, wt.y, wt.radius + 4, 0, Math.PI * 2);
+    ctx.fill();
+    // Tower body
+    ctx.fillStyle = wt.owner === 'player' ? '#5588cc' : wt.owner === 'enemy' ? '#cc5555' : '#666680';
+    ctx.beginPath();
+    ctx.arc(wt.x, wt.y, wt.radius, 0, Math.PI * 2);
+    ctx.fill();
+    // Tower highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.beginPath();
+    ctx.arc(wt.x - 3, wt.y - 3, wt.radius * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Label
+    ctx.fillStyle = '#aaaacc';
+    ctx.font = 'bold 5px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('TOWER', wt.x, wt.y - wt.radius - 6);
   }
 }
 
@@ -796,45 +970,45 @@ function makeMineralPatches() {
   const EBX = ENEMY_BASE_X, EBY = ENEMY_BASE_Y;
   return {
     player: [
-      { x: PBX - 100, y: PBY - 70, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX - 60,  y: PBY - 80, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX - 20,  y: PBY - 85, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX + 20,  y: PBY - 85, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX + 60,  y: PBY - 80, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX + 100, y: PBY - 70, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX - 80,  y: PBY - 75, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX + 80,  y: PBY - 75, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 120, y: PBY - 85, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 75,  y: PBY - 100, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 30,  y: PBY - 110, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 30,  y: PBY - 110, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 75,  y: PBY - 100, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 120, y: PBY - 85, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 95,  y: PBY - 92, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 95,  y: PBY - 92, minerals: 1800, maxMinerals: 1800 },
     ],
     enemy: [
-      { x: EBX - 100, y: EBY + 70, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX - 60,  y: EBY + 80, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX - 20,  y: EBY + 85, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX + 20,  y: EBY + 85, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX + 60,  y: EBY + 80, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX + 100, y: EBY + 70, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX - 80,  y: EBY + 75, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX + 80,  y: EBY + 75, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 120, y: EBY + 85, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 75,  y: EBY + 100, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 30,  y: EBY + 110, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 30,  y: EBY + 110, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 75,  y: EBY + 100, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 120, y: EBY + 85, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 95,  y: EBY + 92, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 95,  y: EBY + 92, minerals: 1800, maxMinerals: 1800 },
     ],
     // Natural expansion minerals — near natural base
     playerExpansion: [
-      { x: PLAYER_EXP_X - 100, y: PLAYER_EXP_Y - 60, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X - 60,  y: PLAYER_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X - 20,  y: PLAYER_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X + 20,  y: PLAYER_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X + 60,  y: PLAYER_EXP_Y - 70, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X + 100, y: PLAYER_EXP_Y - 60, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X - 80,  y: PLAYER_EXP_Y - 65, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X + 80,  y: PLAYER_EXP_Y - 65, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 120, y: PLAYER_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 75,  y: PLAYER_EXP_Y - 90, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 30,  y: PLAYER_EXP_Y - 95, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 30,  y: PLAYER_EXP_Y - 95, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 75,  y: PLAYER_EXP_Y - 90, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 120, y: PLAYER_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 95,  y: PLAYER_EXP_Y - 82, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 95,  y: PLAYER_EXP_Y - 82, minerals: 1800, maxMinerals: 1800 },
     ],
     enemyExpansion: [
-      { x: ENEMY_EXP_X - 100, y: ENEMY_EXP_Y + 60, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X - 60,  y: ENEMY_EXP_Y + 70, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X - 20,  y: ENEMY_EXP_Y + 75, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X + 20,  y: ENEMY_EXP_Y + 75, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X + 60,  y: ENEMY_EXP_Y + 70, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X + 100, y: ENEMY_EXP_Y + 60, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X - 80,  y: ENEMY_EXP_Y + 65, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X + 80,  y: ENEMY_EXP_Y + 65, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 120, y: ENEMY_EXP_Y + 75, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 75,  y: ENEMY_EXP_Y + 90, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 30,  y: ENEMY_EXP_Y + 95, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 30,  y: ENEMY_EXP_Y + 95, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 75,  y: ENEMY_EXP_Y + 90, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 120, y: ENEMY_EXP_Y + 75, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 95,  y: ENEMY_EXP_Y + 82, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 95,  y: ENEMY_EXP_Y + 82, minerals: 1800, maxMinerals: 1800 },
     ],
     // Third contested expansion — GOLD minerals (1.5x yield), center of map
     thirdExpansion: [
@@ -1028,13 +1202,73 @@ let moveModeTimer = 0; // reset to attackmove after 5s
 let playerSupplyQueue = []; // [{ type, timeLeft, totalTime }]
 let enemySupplyQueue = [];
 
-// ---- Building Placement Mode (defense only) ----
-let placingBuilding = null; // { type, bdef } when placing a defense building
+// ---- Building Placement Mode ----
+let placingBuilding = null; // { type, bdef } when placing a building
+let placingGhost = null; // { x, y, r, valid } for ghost preview during placement
+
+// Add a building as an obstacle so units path around it
+function addBuildingObstacle(building) {
+  const bdef = BUILDING_DEFS[building.type];
+  if (!bdef) return;
+  const r = bdef.r || 16;
+  // Don't add obstacles for supply buildings (they don't occupy map space)
+  if (bdef.supplyCap && !bdef.isExpansion && !bdef.isThirdExpansion) return;
+  obstacles.push({
+    type: 'building',
+    x: building.x - r,
+    y: building.y - r,
+    w: r * 2,
+    h: r * 2,
+    buildingRef: building,
+    name: bdef.name
+  });
+}
+
+// Check if a building placement position is valid (no overlap with other buildings, obstacles, minerals)
+function isValidBuildingPlacement(wx, wy, buildingR, team) {
+  const r = buildingR || 16;
+  // Check map bounds
+  if (wx - r < 25 || wx + r > MAP_W - 25 || wy - r < 25 || wy + r > GAME_H - 25) return false;
+  // Check distance from player base (must be within building range)
+  const baseX = team === 'player' ? PLAYER_BASE_X : ENEMY_BASE_X;
+  const baseY = team === 'player' ? PLAYER_BASE_Y : ENEMY_BASE_Y;
+  if (dist({ x: wx, y: wy }, { x: baseX, y: baseY }) > 500) return false;
+  // Check overlap with existing buildings
+  const buildings = team === 'player' ? playerBuildings : enemyBuildings;
+  for (const b of buildings) {
+    const bd = BUILDING_DEFS[b.type];
+    const br = bd ? (bd.r || 16) : 16;
+    const minDist = r + br + 4; // small gap between buildings
+    if (dist({ x: wx, y: wy }, { x: b.x, y: b.y }) < minDist) return false;
+  }
+  // Check overlap with mineral patches
+  const allPatches = [
+    ...(mineralPatches.player || []), ...(mineralPatches.enemy || []),
+    ...(mineralPatches.playerExpansion || []), ...(mineralPatches.enemyExpansion || []),
+    ...(mineralPatches.thirdExpansion || [])
+  ];
+  for (const p of allPatches) {
+    if (p.minerals <= 0) continue;
+    if (dist({ x: wx, y: wy }, { x: p.x, y: p.y }) < r + 12) return false;
+  }
+  // Check overlap with gas geysers
+  const allGeysers = [...(gasGeysers.player || []), ...(gasGeysers.enemy || [])];
+  for (const g of allGeysers) {
+    if (dist({ x: wx, y: wy }, { x: g.x, y: g.y }) < r + 14) return false;
+  }
+  // Check overlap with static obstacles (cliffs/rocks)
+  for (const obs of obstacles) {
+    if (obs.type === 'building') continue; // skip other building obstacles
+    if (wx + r > obs.x && wx - r < obs.x + obs.w &&
+        wy + r > obs.y && wy - r < obs.y + obs.h) return false;
+  }
+  return true;
+}
 
 // ---- Production Building Grid ----
-let PROD_AREA_Y = PLAYER_BASE_Y + 60; // production buildings go behind base
-let PROD_GRID_X = [PLAYER_BASE_X - 60, PLAYER_BASE_X + 60];
-const PROD_GRID_SPACING = 35;
+let PROD_AREA_Y = PLAYER_BASE_Y + 80; // production buildings go behind base
+let PROD_GRID_X = [PLAYER_BASE_X - 80, PLAYER_BASE_X + 80];
+const PROD_GRID_SPACING = 45;
 
 // ---- Rally Point System ----
 let playerRallyX = null; // X+Y coordinates, null = hold at base
@@ -1137,8 +1371,12 @@ function getAvailableBuildings(team) {
         const initialCap = (faction === 'zerg') ? 14 : 15;
         const currentMax = team === 'player' ? playerSupplyMax : enemySupplyMax;
         const supplyQueue = team === 'player' ? playerSupplyQueue : enemySupplyQueue;
-        // Requirement met if a supply building has completed (max increased) or is currently building
-        if (currentMax <= initialCap && supplyQueue.length === 0) continue;
+        // Requirement met if a supply building has completed (max increased), is in queue, or is on the map
+        const hasSupplyBuilding = buildings.some(b => {
+          const bd = BUILDING_DEFS[b.type];
+          return bd && bd.supplyCap && !bd.isExpansion && !bd.isThirdExpansion && b.type !== '_base';
+        });
+        if (currentMax <= initialCap && supplyQueue.length === 0 && !hasSupplyBuilding) continue;
       } else {
         const hasReq = buildings.some(b => b.type === bdef.requires && b.built);
         if (!hasReq) continue;
@@ -1375,6 +1613,12 @@ function startGame() {
   mineralPatches = makeMineralPatches();
   gasGeysers = makeGasGeysers();
   obstacles = makeObstacles();
+  destructibleRocks = makeDestructibleRocks();
+  watchtowers = makeWatchtowers();
+  // Add destructible rocks as obstacles (will be removed when destroyed)
+  for (const dr of destructibleRocks) {
+    obstacles.push({ type: 'rock', x: dr.x, y: dr.y, w: dr.w, h: dr.h, name: dr.name, destructibleRef: dr });
+  }
   initFlowFields();
   units = [];
   particles = [];
@@ -1392,10 +1636,14 @@ function startGame() {
   creepZones = [];
   initFog();
   // Each side gets an implicit "base" building
-  PROD_AREA_Y = PLAYER_BASE_Y + 60;
-  PROD_GRID_X = [PLAYER_BASE_X - 60, PLAYER_BASE_X + 60];
-  playerBuildings = [{ type: '_base', x: PLAYER_BASE_X, y: PLAYER_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false }];
-  enemyBuildings = [{ type: '_base', x: ENEMY_BASE_X, y: ENEMY_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false }];
+  PROD_AREA_Y = PLAYER_BASE_Y + 80;
+  PROD_GRID_X = [PLAYER_BASE_X - 80, PLAYER_BASE_X + 80];
+  const playerBase = { type: '_base', x: PLAYER_BASE_X, y: PLAYER_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false };
+  const enemyBase = { type: '_base', x: ENEMY_BASE_X, y: ENEMY_BASE_Y, hp: 2400, maxHp: 2400, built: true, buildProgress: 99, buildTime: 1, queue: [], energy: 50, maxEnergy: 200, isOrbital: false };
+  playerBuildings = [playerBase];
+  enemyBuildings = [enemyBase];
+  addBuildingObstacle(playerBase);
+  addBuildingObstacle(enemyBase);
   playerMinerals = 50;
   enemyMinerals = 50;
   playerGas = 0;
@@ -1412,6 +1660,7 @@ function startGame() {
   playerSupplyQueue = [];
   enemySupplyQueue = [];
   placingBuilding = null;
+  placingGhost = null;
   enemyStance = (aiDifficulty === 'hard' || aiDifficulty === 'impossible') ? 'defend' : 'attack';
   aiTimer = 0;
   aiArmyValue = 0;
@@ -2407,6 +2656,34 @@ function updateGame(dt) {
   // Update buildings (supply cap on complete)
   updateBuildings(playerBuildings, 'player', dt);
   updateBuildings(enemyBuildings, 'enemy', dt);
+
+  // Update destructible rocks — check if any units are attacking them
+  for (let i = destructibleRocks.length - 1; i >= 0; i--) {
+    const dr = destructibleRocks[i];
+    if (dr.hp <= 0) {
+      // Remove from obstacles
+      for (let j = obstacles.length - 1; j >= 0; j--) {
+        if (obstacles[j].destructibleRef === dr) { obstacles.splice(j, 1); break; }
+      }
+      spawnParticle(dr.x + dr.w/2, dr.y + dr.h/2, '#aa8844', 15);
+      spawnParticle(dr.x + dr.w/2, dr.y + dr.h/2, '#886633', 10);
+      destructibleRocks.splice(i, 1);
+    }
+  }
+
+  // Update Xel'naga watchtowers — nearest unit within 40px claims it
+  for (const wt of watchtowers) {
+    wt.owner = null;
+    let closestDist = 40;
+    for (const u of units) {
+      if (u.hp <= 0) continue;
+      const d = Math.sqrt((u.x - wt.x) ** 2 + (u.y - wt.y) ** 2);
+      if (d < closestDist) {
+        closestDist = d;
+        wt.owner = u.team;
+      }
+    }
+  }
 
   // Update supply queues (background building)
   updateSupplyQueue(playerSupplyQueue, 'player', dt);
@@ -3997,14 +4274,15 @@ function aiBuildBuilding(btype) {
     }).length;
     const col = prodCount % 2;
     const row = Math.floor(prodCount / 2);
-    const bx = ENEMY_BASE_X - 60 + col * 120;
-    const by = ENEMY_BASE_Y - 80 - row * PROD_GRID_SPACING; // mirrored from player
+    const bx = ENEMY_BASE_X - 80 + col * 160;
+    const by = ENEMY_BASE_Y - 100 - row * PROD_GRID_SPACING; // mirrored from player
     const hp = bdef.isDefense ? (bdef.defenseHp || 500) : 500;
     const newB = {
       type: btype, x: bx, y: by,
       hp, maxHp: hp, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
     };
     enemyBuildings.push(newB);
+    addBuildingObstacle(newB);
     lockWorkerForBuilding('enemy', newB);
     return true;
   }
@@ -4820,10 +5098,38 @@ function render() {
     ctx.fillText(playerMoveMode === 'move' ? 'MOVE' : 'RALLY', rpX, playerRallyY - 20);
   }
 
-  // Defense building placement overlay
+  // Building placement overlay with ghost preview
   if (placingBuilding) {
-    ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
-    ctx.fillRect(20, 20, MAP_W - 40, GAME_H - 40);
+    // Dim the map slightly
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.fillRect(0, 0, MAP_W, GAME_H);
+    // Show placement range circle around player base
+    ctx.strokeStyle = 'rgba(0, 200, 100, 0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(PLAYER_BASE_X, PLAYER_BASE_Y, 500, 0, Math.PI * 2);
+    ctx.stroke();
+    // Ghost preview at cursor position
+    if (placingGhost) {
+      const r = placingBuilding.bdef.r || 16;
+      const valid = isValidBuildingPlacement(placingGhost.x, placingGhost.y, r, 'player');
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = valid ? 'rgba(0, 255, 100, 0.4)' : 'rgba(255, 50, 50, 0.4)';
+      ctx.beginPath();
+      ctx.arc(placingGhost.x, placingGhost.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = valid ? '#00ff66' : '#ff3333';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Building name label
+      ctx.globalAlpha = 0.8;
+      ctx.fillStyle = valid ? '#00ff88' : '#ff4444';
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(placingBuilding.bdef.name, placingGhost.x, placingGhost.y - r - 5);
+      ctx.globalAlpha = 1;
+    }
+    // Instructions text
     ctx.fillStyle = 'rgba(0, 255, 100, 0.9)';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'center';
@@ -4847,41 +5153,117 @@ function render() {
 }
 
 function drawArena() {
-  // Ground — full SC2-style map
-  ctx.fillStyle = '#1e1e3a';
+  const midX = MAP_W / 2, midY = GAME_H / 2;
+
+  // ---- Low ground (default) ----
+  ctx.fillStyle = '#1a1a32';
   ctx.fillRect(0, 0, MAP_W, GAME_H);
 
-  // Player base zone (warm blue tint)
-  ctx.fillStyle = 'rgba(35, 45, 75, 0.5)';
+  // ---- Elevated plateaus (main bases) — lighter ground ----
+  const elevZones = getElevationZones();
+  for (const ez of elevZones) {
+    if (!isVisible2D(ez.cx, ez.cy, Math.max(ez.rx, ez.ry) + 50)) continue;
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(ez.cx, ez.cy, ez.rx, ez.ry, 0, 0, Math.PI * 2);
+    // Elevated ground — brighter
+    const brightness = ez.elevation === 2 ? 0.18 : 0.1;
+    ctx.fillStyle = `rgba(50, 50, 80, ${brightness})`;
+    ctx.fill();
+    // Plateau edge shadow
+    ctx.strokeStyle = `rgba(80, 80, 120, ${0.2 + ez.elevation * 0.1})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ---- Player base zone (warm blue tint) ----
+  ctx.fillStyle = 'rgba(30, 40, 70, 0.45)';
   ctx.beginPath();
-  ctx.arc(PLAYER_BASE_X, PLAYER_BASE_Y, 200, 0, Math.PI * 2);
+  ctx.arc(PLAYER_BASE_X, PLAYER_BASE_Y, 220, 0, Math.PI * 2);
   ctx.fill();
-  // Enemy base zone (warm red tint)
-  ctx.fillStyle = 'rgba(75, 35, 45, 0.35)';
+  // Inner glow
+  ctx.fillStyle = 'rgba(40, 55, 90, 0.25)';
   ctx.beginPath();
-  ctx.arc(ENEMY_BASE_X, ENEMY_BASE_Y, 200, 0, Math.PI * 2);
+  ctx.arc(PLAYER_BASE_X, PLAYER_BASE_Y, 140, 0, Math.PI * 2);
   ctx.fill();
 
-  // Natural expansion areas — golden tint
-  ctx.fillStyle = 'rgba(70, 65, 30, 0.25)';
-  ctx.beginPath(); ctx.arc(PLAYER_EXP_X, PLAYER_EXP_Y, 150, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(ENEMY_EXP_X, ENEMY_EXP_Y, 150, 0, Math.PI * 2); ctx.fill();
+  // ---- Enemy base zone (warm red tint) ----
+  ctx.fillStyle = 'rgba(70, 30, 40, 0.35)';
+  ctx.beginPath();
+  ctx.arc(ENEMY_BASE_X, ENEMY_BASE_Y, 220, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(90, 40, 50, 0.2)';
+  ctx.beginPath();
+  ctx.arc(ENEMY_BASE_X, ENEMY_BASE_Y, 140, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Third expansion corridor — gold tint
-  ctx.fillStyle = 'rgba(120, 90, 20, 0.15)';
-  ctx.beginPath(); ctx.arc(THIRD_EXP_X, THIRD_EXP_Y, 120, 0, Math.PI * 2); ctx.fill();
+  // ---- Natural expansion areas — warm golden ground ----
+  ctx.fillStyle = 'rgba(65, 60, 25, 0.25)';
+  ctx.beginPath(); ctx.arc(PLAYER_EXP_X, PLAYER_EXP_Y, 170, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ENEMY_EXP_X, ENEMY_EXP_Y, 170, 0, Math.PI * 2); ctx.fill();
 
-  // Mid-field — slightly different ground
-  ctx.fillStyle = 'rgba(30, 30, 50, 0.2)';
-  ctx.fillRect(MAP_W * 0.25, GAME_H * 0.3, MAP_W * 0.5, GAME_H * 0.4);
+  // ---- Third expansion (gold) — bright golden zone ----
+  ctx.fillStyle = 'rgba(120, 90, 20, 0.18)';
+  ctx.beginPath(); ctx.arc(THIRD_EXP_X, THIRD_EXP_Y, 130, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(150, 110, 30, 0.1)';
+  ctx.beginPath(); ctx.arc(THIRD_EXP_X, THIRD_EXP_Y, 80, 0, Math.PI * 2); ctx.fill();
 
-  // Grid lines (only draw visible ones)
-  ctx.strokeStyle = '#2a2a4e';
-  ctx.lineWidth = 0.5;
-  const startX = Math.max(20, Math.floor((cameraX - 10) / 40) * 40);
-  const endX = Math.min(MAP_W, cameraX + ARENA_W + 40);
-  const startY = Math.max(20, Math.floor((cameraY - 10) / 40) * 40);
-  const endY = Math.min(GAME_H, cameraY + VIEWPORT_H + 40);
+  // ---- Mid-field battle area — slightly different texture ----
+  ctx.fillStyle = 'rgba(35, 30, 50, 0.15)';
+  ctx.fillRect(MAP_W * 0.2, GAME_H * 0.25, MAP_W * 0.6, GAME_H * 0.5);
+
+  // ---- Ramp indicators (diagonal markings showing where ramps are) ----
+  // Player main ramp
+  ctx.save();
+  ctx.strokeStyle = 'rgba(80, 80, 120, 0.35)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([4, 4]);
+  // Player ramp lines (between right cliff gap)
+  ctx.beginPath();
+  ctx.moveTo(PLAYER_BASE_X + 80, PLAYER_BASE_Y + 180);
+  ctx.lineTo(PLAYER_BASE_X + 155, PLAYER_BASE_Y + 80);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(PLAYER_BASE_X + 60, PLAYER_BASE_Y + 180);
+  ctx.lineTo(PLAYER_BASE_X + 135, PLAYER_BASE_Y + 80);
+  ctx.stroke();
+  // Enemy ramp lines (mirrored)
+  ctx.beginPath();
+  ctx.moveTo(ENEMY_BASE_X - 80, ENEMY_BASE_Y - 220);
+  ctx.lineTo(ENEMY_BASE_X - 155, ENEMY_BASE_Y - 80);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(ENEMY_BASE_X - 60, ENEMY_BASE_Y - 220);
+  ctx.lineTo(ENEMY_BASE_X - 135, ENEMY_BASE_Y - 80);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // ---- Attack path lanes (subtle ground markings) ----
+  // Upper lane
+  ctx.fillStyle = 'rgba(40, 35, 55, 0.12)';
+  ctx.beginPath();
+  ctx.moveTo(ENEMY_BASE_X + 200, ENEMY_BASE_Y);
+  ctx.lineTo(midX, midY - 80);
+  ctx.lineTo(midX + 40, midY - 80);
+  ctx.lineTo(PLAYER_BASE_X - 200, PLAYER_BASE_Y);
+  ctx.fill();
+  // Lower lane
+  ctx.beginPath();
+  ctx.moveTo(ENEMY_BASE_X, ENEMY_BASE_Y + 150);
+  ctx.lineTo(midX, midY + 80);
+  ctx.lineTo(midX + 40, midY + 80);
+  ctx.lineTo(PLAYER_BASE_X - 100, PLAYER_BASE_Y + 100);
+  ctx.fill();
+
+  // ---- Grid lines (only draw visible ones) ----
+  ctx.strokeStyle = '#252544';
+  ctx.lineWidth = 0.3;
+  const startX = Math.max(25, Math.floor((cameraX - 10) / 40) * 40);
+  const endX = Math.min(MAP_W - 25, cameraX + ARENA_W + 40);
+  const startY = Math.max(25, Math.floor((cameraY - 10) / 40) * 40);
+  const endY = Math.min(GAME_H - 25, cameraY + VIEWPORT_H + 40);
   for (let x = startX; x < endX; x += 40) {
     ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
   }
@@ -4889,41 +5271,48 @@ function drawArena() {
     ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
   }
 
-  // Map border
+  // ---- Map border ----
   ctx.strokeStyle = '#3a3a66';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(10, 10, MAP_W - 20, GAME_H - 20);
+  ctx.lineWidth = 4;
+  ctx.strokeRect(15, 15, MAP_W - 30, GAME_H - 30);
 
-  // Labels
+  // ---- Labels ----
+  ctx.textAlign = 'center';
   if (isVisible2D(PLAYER_EXP_X, PLAYER_EXP_Y)) {
-    ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
-    ctx.font = 'bold 7px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('NATURAL', PLAYER_EXP_X, PLAYER_EXP_Y - 90);
+    ctx.fillStyle = 'rgba(200, 180, 80, 0.35)';
+    ctx.font = 'bold 8px monospace';
+    ctx.fillText('NATURAL', PLAYER_EXP_X, PLAYER_EXP_Y - 100);
   }
   if (isVisible2D(ENEMY_EXP_X, ENEMY_EXP_Y)) {
-    ctx.fillStyle = 'rgba(200, 180, 80, 0.3)';
-    ctx.font = 'bold 7px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('NATURAL', ENEMY_EXP_X, ENEMY_EXP_Y + 95);
+    ctx.fillStyle = 'rgba(200, 180, 80, 0.35)';
+    ctx.font = 'bold 8px monospace';
+    ctx.fillText('NATURAL', ENEMY_EXP_X, ENEMY_EXP_Y + 110);
   }
   if (isVisible2D(PLAYER_CHOKE_X, PLAYER_CHOKE_Y)) {
-    ctx.fillStyle = 'rgba(180, 140, 60, 0.2)';
-    ctx.font = 'bold 5px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('CHOKE', PLAYER_CHOKE_X, PLAYER_CHOKE_Y - 25);
+    ctx.fillStyle = 'rgba(180, 140, 60, 0.25)';
+    ctx.font = 'bold 6px monospace';
+    ctx.fillText('RAMP', PLAYER_CHOKE_X, PLAYER_CHOKE_Y - 30);
   }
   if (isVisible2D(ENEMY_CHOKE_X, ENEMY_CHOKE_Y)) {
-    ctx.fillStyle = 'rgba(180, 140, 60, 0.2)';
-    ctx.font = 'bold 5px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('CHOKE', ENEMY_CHOKE_X, ENEMY_CHOKE_Y + 30);
+    ctx.fillStyle = 'rgba(180, 140, 60, 0.25)';
+    ctx.font = 'bold 6px monospace';
+    ctx.fillText('RAMP', ENEMY_CHOKE_X, ENEMY_CHOKE_Y + 35);
   }
   if (isVisible2D(THIRD_EXP_X, THIRD_EXP_Y)) {
-    ctx.fillStyle = 'rgba(220, 180, 40, 0.35)';
+    ctx.fillStyle = 'rgba(220, 180, 40, 0.4)';
+    ctx.font = 'bold 7px monospace';
+    ctx.fillText('GOLD EXPANSION', THIRD_EXP_X, THIRD_EXP_Y + 35);
+  }
+  // Main base labels
+  if (isVisible2D(PLAYER_BASE_X, PLAYER_BASE_Y)) {
+    ctx.fillStyle = 'rgba(100, 140, 200, 0.2)';
     ctx.font = 'bold 6px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('GOLD EXP', THIRD_EXP_X, THIRD_EXP_Y + 30);
+    ctx.fillText('MAIN', PLAYER_BASE_X, PLAYER_BASE_Y + 35);
+  }
+  if (isVisible2D(ENEMY_BASE_X, ENEMY_BASE_Y)) {
+    ctx.fillStyle = 'rgba(200, 100, 100, 0.2)';
+    ctx.font = 'bold 6px monospace';
+    ctx.fillText('ENEMY MAIN', ENEMY_BASE_X, ENEMY_BASE_Y - 35);
   }
 }
 
@@ -7423,6 +7812,14 @@ function drawMinimap() {
     }
   }
 
+  // Watchtowers on minimap
+  for (const wt of watchtowers) {
+    ctx.fillStyle = wt.owner === 'player' ? '#88aaff' : wt.owner === 'enemy' ? '#ff8888' : '#888899';
+    ctx.beginPath();
+    ctx.arc(mmX + wt.x * scaleX, mmY + wt.y * scaleY, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Units as dots
   for (const u of units) {
     if (u.dead) continue;
@@ -7611,9 +8008,10 @@ function getPanelButtons() {
 function handleInput(x, y) {
   if (!gameRunning) return;
 
-  // Cancel defense placement if clicking on panel
+  // Cancel building placement if clicking on panel
   if (placingBuilding && x >= ARENA_W) {
     placingBuilding = null;
+    placingGhost = null;
     return;
   }
 
@@ -7742,6 +8140,7 @@ function handleInput(x, y) {
               hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
             };
             playerBuildings.push(newGasB);
+            addBuildingObstacle(newGasB);
             lockWorkerForBuilding('player', newGasB);
           } else if (bdef.isExpansion) {
             // Natural expansion auto-places
@@ -7753,6 +8152,7 @@ function handleInput(x, y) {
               energy: 0, maxEnergy: 200, isOrbital: false,
             };
             playerBuildings.push(newExpB);
+            addBuildingObstacle(newExpB);
             lockWorkerForBuilding('player', newExpB);
           } else if (bdef.isThirdExpansion) {
             // Third expansion auto-places in contested corridor
@@ -7764,33 +8164,14 @@ function handleInput(x, y) {
               energy: 0, maxEnergy: 200, isOrbital: false,
             };
             playerBuildings.push(newThirdB);
+            addBuildingObstacle(newThirdB);
             lockWorkerForBuilding('player', newThirdB);
-          } else if (bdef.supplyCap) {
-            // Supply buildings → background queue (no physical placement)
-            playerMinerals -= bdef.cost;
-            playerGas -= gasCost;
-            playerSupplyQueue.push({ type: btn.type, timeLeft: bdef.buildTime, totalTime: bdef.buildTime });
-          } else if (bdef.isDefense) {
-            // Defense buildings → tap-to-place mode
+          } else if (bdef.isDefense || bdef.supplyCap) {
+            // Defense and supply buildings → tap-to-place mode
             placingBuilding = { type: btn.type, bdef };
           } else {
-            // Production buildings → ordered grid
-            playerMinerals -= bdef.cost;
-            playerGas -= gasCost;
-            const prodCount = playerBuildings.filter(b => {
-              const bd = BUILDING_DEFS[b.type];
-              return bd && !bd.supplyCap && !bd.gasBuilding && !bd.isExpansion && !bd.isThirdExpansion && !bd.isDefense && b.type !== '_base';
-            }).length;
-            const col = prodCount % 2;
-            const row = Math.floor(prodCount / 2);
-            const bx = PROD_GRID_X[col];
-            const by = PROD_AREA_Y - row * PROD_GRID_SPACING;
-            const newProdB = {
-              type: btn.type, x: bx, y: by,
-              hp: 500, maxHp: 500, built: false, buildProgress: 0, buildTime: bdef.buildTime, queue: [],
-            };
-            playerBuildings.push(newProdB);
-            lockWorkerForBuilding('player', newProdB);
+            // Production/tech/upgrade buildings → tap-to-place mode (SC2-style)
+            placingBuilding = { type: btn.type, bdef };
           }
         }
         return;
@@ -7840,27 +8221,31 @@ function handleInput(x, y) {
     const wx = Math.max(25, Math.min(MAP_W - 25, worldX));
     const wy = Math.max(30, Math.min(GAME_H - 30, worldY));
 
-    // Defense building placement mode
+    // Building placement mode (all building types)
     if (placingBuilding) {
-      // Only allow placement on player's half of the map
-      if (dist({ x: wx, y: wy }, { x: PLAYER_BASE_X, y: PLAYER_BASE_Y }) > 400 || wx < 30 || wx > MAP_W - 30) {
-        placingBuilding = null;
+      const pb = placingBuilding;
+      const bdefR = pb.bdef.r || 16;
+      // Validate placement
+      if (!isValidBuildingPlacement(wx, wy, bdefR, 'player')) {
+        // Invalid spot - don't cancel, let them try again
         return;
       }
-      const pb = placingBuilding;
       const gasCost = pb.bdef.gasCost || 0;
       if (pb.bdef.cost <= playerMinerals && playerGas >= gasCost) {
         playerMinerals -= pb.bdef.cost;
         playerGas -= gasCost;
-        const hp = pb.bdef.defenseHp;
-        const newDefB = {
+        const hp = pb.bdef.defenseHp || 500;
+        const newB = {
           type: pb.type, x: wx, y: wy,
           hp, maxHp: hp, built: false, buildProgress: 0, buildTime: pb.bdef.buildTime, queue: [],
         };
-        playerBuildings.push(newDefB);
-        lockWorkerForBuilding('player', newDefB);
+        // Supply buildings get supply cap when completed (handled in update loop)
+        playerBuildings.push(newB);
+        addBuildingObstacle(newB);
+        lockWorkerForBuilding('player', newB);
       }
       placingBuilding = null;
+      placingGhost = null;
       return;
     }
 
@@ -7950,6 +8335,9 @@ canvas.addEventListener('touchmove', (e) => {
       panelTouchStartY = y;
       panelTouchMoved = true;
     }
+  } else if (placingBuilding && !cameraDragging) {
+    // Update ghost preview during placement mode
+    placingGhost = { x: x + cameraX, y: y + cameraY };
   } else if (cameraDragging) {
     const dragDx = x - cameraDragLastX;
     const dragDy = y - cameraDragLastY;
@@ -7959,6 +8347,8 @@ canvas.addEventListener('touchmove', (e) => {
     cameraY = Math.max(0, Math.min(GAME_H - VIEWPORT_H, cameraY));
     cameraDragLastX = x;
     cameraDragLastY = y;
+    // Update ghost while dragging camera too
+    if (placingBuilding) placingGhost = { x: x + cameraX, y: y + cameraY };
   }
 }, { passive: false });
 
@@ -7990,8 +8380,13 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 canvas.addEventListener('mousemove', (e) => {
-  if (!mouseDown || !gameRunning) return;
+  if (!gameRunning) return;
   const { x, y } = gameToCanvas(e.clientX, e.clientY);
+  // Update ghost preview for building placement (even without mouse down)
+  if (placingBuilding && x < ARENA_W) {
+    placingGhost = { x: x + cameraX, y: y + cameraY };
+  }
+  if (!mouseDown) return;
   if (Math.abs(y - mouseStartY) > 5 || Math.abs(x - mouseStartX) > 5) mouseMoved = true;
   if (cameraDragging && mouseStartX < ARENA_W) {
     cameraX -= (x - cameraDragLastX);
