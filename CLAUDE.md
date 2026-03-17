@@ -4,21 +4,22 @@
 Single-file HTML5 canvas game (`index.html`) implementing a StarCraft 2-inspired RTS with three factions (Terran, Protoss, Zerg), resource management, tech trees, and AI opponents across three difficulty levels.
 
 ## Architecture
-- **Single file**: All game logic, rendering, and UI in `index.html` (~6500+ lines)
+- **Single file**: All game logic, rendering, and UI in `index.html` (~8000+ lines)
 - **Simulator**: `simulate.js` mirrors game logic headlessly for AI balance testing
+- **Evolver**: `evolve.js` evolutionary AI trainer using genetic algorithms for self-play parameter optimization
 - **Canvas rendering**: 400x1400 pixel arena at 60fps, with 90px side panel
 - **No build tools**: Pure vanilla JavaScript, no dependencies
 
 ## Key Code Sections (index.html)
-- **Lines ~768-807**: `BUILDING_DEFS` - all building definitions
-- **Lines ~825-865**: `UNIT_DEFS` - all unit definitions with stats
-- **Lines ~2836-3256**: Enemy AI system (utility-based with build orders, micro, army grouping)
-- **Lines ~5442-5835**: Production panel UI (`drawProductionPanel`)
-- **Lines ~6012-6139**: Panel button hit detection (`getPanelButtons`)
-- **Lines ~6141-6334**: Input handling (`handleInput`)
-- **Lines ~2141-2638**: Main game update loop (`updateGame`)
-- **Lines ~1327-1392**: Target finding with priority scoring (`findTarget`)
-- **Lines ~1758-1834**: Building queue processing (`getBuildingForUnit`, `updateAllBuildingQueues`)
+- **Lines ~878-965**: `BUILDING_DEFS` - all building definitions
+- **Lines ~973-1015**: `UNIT_DEFS` - all unit definitions with stats
+- **Lines ~1523+**: Target finding with priority scoring (`findTarget`)
+- **Lines ~1954-2100**: Building queue processing (`getBuildingForUnit`, `updateAllBuildingQueues`)
+- **Lines ~2392-3192**: Main game update loop (`updateGame`)
+- **Lines ~3266-4554**: Enemy AI system (utility-based with build orders, micro, army grouping)
+- **Lines ~6842-7370**: Production panel UI (`drawProductionPanel`)
+- **Lines ~7461-7610**: Panel button hit detection (`getPanelButtons`)
+- **Lines ~7611+**: Input handling (`handleInput`)
 
 ## Game Systems
 
