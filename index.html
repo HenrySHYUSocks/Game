@@ -298,6 +298,7 @@ let forceFields = [];
 let stormZones = []; // { x, y, timer, dmg, team, tickTimer }
 let autoTurrets = []; // { x, y, hp, dmg, range, team, timer, atkTimer }
 let scanZones = []; // { x, y, radius, timer, team }
+let nukeZones = []; // { x, y, timer, team, caster (unit ref), landed }
 let interceptors = []; // { x, y, owner (unit ref), team, hp, dmg, atkTimer, orbitAngle, target }
 let playerUpgrades = { attack: 0, armor: 0 };
 let enemyUpgrades = { attack: 0, armor: 0 };
@@ -997,6 +998,7 @@ const UNIT_DEFS = {
   carrier:      { faction:'protoss', cost:350, gasCost:250, supply:6, hp:300, armor:2, dmg:0,  speed:1.875,range:192, atkSpeed:0,    count:1, r:15, color:'#ddaa00', name:'Carrier', buildTime:21, isAir:true, shield:true, shieldAmt:150, interceptorCarrier:true, maxInterceptors:8, tags:['armored','mechanical','massive'] },
   darktemplar:  { faction:'protoss', cost:125, gasCost:125, supply:2, hp:40,  armor:1, dmg:45, speed:2.8125,range:20, atkSpeed:1.694,count:1, r:9,  color:'#886600', name:'Dark Templar', buildTime:12, cloaked:true, shield:true, shieldAmt:80, tags:['light','biological','psionic'] },
   observer:     { faction:'protoss', cost:25,  gasCost:75,  supply:1, hp:40,  armor:0, dmg:0,  speed:1.875,range:0,   atkSpeed:0,    count:1, r:5,  color:'#999966', name:'Observer', buildTime:8, isAir:true, cloaked:true, detector:true, detectionRange:150, shield:true, shieldAmt:20, tags:['light','mechanical'] },
+  archon:       { faction:'protoss', cost:0,   gasCost:0,   supply:4, hp:10,  armor:0, dmg:25, speed:2.8125,range:20,  atkSpeed:1.2,  count:1, r:14, color:'#ffaa00', name:'Archon', buildTime:0, shield:true, shieldAmt:350, splash:20, tags:['massive','biological','psionic'], bonusDmg:{tag:'biological',amount:10} },
   // ZERG
   zergling:     { faction:'zerg', cost:50,  gasCost:0,   supply:1, hp:35,  armor:0, dmg:5,  speed:2.953,range:18,  atkSpeed:0.696,count:2, r:6,  color:'#ff4444', name:'Zergling', buildTime:6, tags:['light','biological'] },
   roach:        { faction:'zerg', cost:75,  gasCost:25,  supply:2, hp:145, armor:1, dmg:16, speed:2.25, range:96,  atkSpeed:2.0,  count:1, r:10, color:'#aa3333', name:'Roach', buildTime:6, tags:['armored','biological'] },
@@ -1227,6 +1229,9 @@ function spawnUnit(defName, x, y, team) {
       spawnsBroodlings: def.spawnsBroodlings || false,
       injectTimer: 0,
       garrisonCooldown: 0,
+      merging: false, mergeTimer: 0, mergePartner: null,
+      nukeTimer: 0, nukeCooldown: 0, nukeTarget: null, nukeChanelling: false,
+      neuralTarget: null, neuralTimer: 0, neuralCooldown: 0,
     });
     // Apply unit-specific upgrades
     const u = units[units.length - 1];
@@ -1378,6 +1383,7 @@ function startGame() {
   stormZones = [];
   autoTurrets = [];
   scanZones = [];
+  nukeZones = [];
   interceptors = [];
   playerUpgrades = { attack: 0, armor: 0 };
   enemyUpgrades = { attack: 0, armor: 0 };
@@ -1406,7 +1412,7 @@ function startGame() {
   playerSupplyQueue = [];
   enemySupplyQueue = [];
   placingBuilding = null;
-  enemyStance = 'attack';
+  enemyStance = (aiDifficulty === 'hard' || aiDifficulty === 'impossible') ? 'defend' : 'attack';
   aiTimer = 0;
   aiArmyValue = 0;
   aiLastAttackTime = 0;
@@ -2253,6 +2259,51 @@ function updateUnitAbilities(unit, dt) {
     }
     if (fired) unit.empTimer = 20;
   }
+  // Ghost Nuke: channel for 5 seconds, then massive AoE
+  if (unit.type === 'ghost' && unit.nukeChanelling && unit.nukeTarget) {
+    unit.nukeTimer -= dt;
+    // Ghost must stay alive and stationary during channel - freeze movement
+    unit.speed = 0;
+    if (unit.nukeTimer <= 0) {
+      // Nuke lands!
+      const nx = unit.nukeTarget.x, ny = unit.nukeTarget.y;
+      dealSplash(nx, ny, 80, 300, unit.team);
+      // Massive explosion particles
+      for (let i = 0; i < 20; i++) {
+        spawnParticle(nx + (Math.random()-0.5)*60, ny + (Math.random()-0.5)*60, '#ff4400', 15 + Math.random()*10);
+      }
+      for (let i = 0; i < 10; i++) {
+        spawnParticle(nx + (Math.random()-0.5)*40, ny + (Math.random()-0.5)*40, '#ffcc00', 10 + Math.random()*8);
+      }
+      spawnParticle(nx, ny, '#ffffff', 30);
+      unit.nukeChanelling = false;
+      unit.nukeTarget = null;
+      unit.nukeCooldown = 60;
+      unit.speed = UNIT_DEFS.ghost.speed; // restore speed
+    }
+  }
+  if (unit.type === 'ghost' && unit.nukeCooldown > 0) unit.nukeCooldown -= dt;
+  // Ghost auto-nuke: use when 5+ enemies are clustered and no nuke active
+  if (unit.type === 'ghost' && !unit.nukeChanelling && unit.nukeCooldown <= 0 && unit.empTimer > 5) {
+    // Find cluster of 5+ enemies
+    let bestCluster = null, bestCount = 0;
+    for (const e of units) {
+      if (e.dead || e.team === unit.team || e.worker) continue;
+      if (dist(unit, e) > 200) continue;
+      let count = 0;
+      for (const e2 of units) {
+        if (e2.dead || e2.team === unit.team) continue;
+        if (dist(e, e2) < 80) count++;
+      }
+      if (count > bestCount) { bestCount = count; bestCluster = e; }
+    }
+    if (bestCluster && bestCount >= 5) {
+      unit.nukeChanelling = true;
+      unit.nukeTimer = 5.0;
+      unit.nukeTarget = { x: bestCluster.x, y: bestCluster.y };
+      spawnParticle(unit.x, unit.y, '#ff0000', 12);
+    }
+  }
 
   // Sentry force field: drop barrier near bridge
   if (unit.type === 'sentry' && unit.forcefieldTimer <= 0) {
@@ -2581,16 +2632,77 @@ function updateGame(dt) {
       effectiveSplash = 40;
     }
 
-    // High Templar: Psionic Storm (spell caster, doesn't auto-attack)
+    // High Templar: Psionic Storm - target densest enemy cluster in range
     if (unit.type === 'hightemplar' && target && unit.stormTimer <= 0) {
-      const d = dist(unit, target);
-      if (d <= effectiveRange) {
-        stormZones.push({ x: target.x, y: target.y, timer: 2.85, dmg: 14, team: unit.team, tickTimer: 0 });
+      // Find densest cluster of enemies within storm range
+      let bestStormTarget = null, bestClusterSize = 0;
+      for (const e of units) {
+        if (e.dead || e.team === unit.team || e.worker) continue;
+        if (dist(unit, e) > effectiveRange) continue;
+        let clusterSize = 0;
+        for (const e2 of units) {
+          if (e2.dead || e2.team === unit.team) continue;
+          if (dist(e, e2) <= 45) clusterSize++;
+        }
+        if (clusterSize > bestClusterSize) { bestClusterSize = clusterSize; bestStormTarget = e; }
+      }
+      // Only storm if hitting 2+ enemies (or 1 high-value target)
+      if (bestStormTarget && (bestClusterSize >= 2 || (bestClusterSize >= 1 && target))) {
+        stormZones.push({ x: bestStormTarget.x, y: bestStormTarget.y, timer: 2.85, dmg: 14, team: unit.team, tickTimer: 0 });
         unit.stormTimer = 15;
-        spawnParticle(target.x, target.y, '#8888ff', 15);
+        spawnParticle(bestStormTarget.x, bestStormTarget.y, '#8888ff', 15);
       }
     }
     if (unit.stormTimer > 0) unit.stormTimer -= dt;
+    // Archon Merge: two High Templars near each other with storm on cooldown
+    if (unit.type === 'hightemplar' && !unit.merging && unit.stormTimer > 0) {
+      for (const other of units) {
+        if (other === unit || other.dead || other.type !== 'hightemplar' || other.team !== unit.team || other.merging) continue;
+        if (dist(unit, other) < 60) {
+          // Mark both as merging (prevents double-merge)
+          unit.merging = true;
+          other.merging = true;
+          unit.mergeTimer = 2.0;
+          unit.mergePartner = other;
+          spawnParticle(unit.x, unit.y, '#ffaa00', 20);
+          spawnParticle(other.x, other.y, '#ffaa00', 20);
+          break;
+        }
+      }
+    }
+    // Archon merge countdown
+    if (unit.merging && unit.mergePartner) {
+      unit.mergeTimer -= dt;
+      // Pull both HTs together during merge
+      const partner = unit.mergePartner;
+      if (!partner.dead) {
+        const mx = (unit.x + partner.x) / 2;
+        const my = (unit.y + partner.y) / 2;
+        unit.x += (mx - unit.x) * dt * 2;
+        unit.y += (my - unit.y) * dt * 2;
+        partner.x += (mx - partner.x) * dt * 2;
+        partner.y += (my - partner.y) * dt * 2;
+      }
+      if (unit.mergeTimer <= 0) {
+        // Spawn Archon at merge point
+        const ax = (unit.x + (partner.dead ? unit.x : partner.x)) / 2;
+        const ay = (unit.y + (partner.dead ? unit.y : partner.y)) / 2;
+        const archon = spawnUnit('archon', ax, ay, unit.team);
+        if (archon) {
+          spawnParticle(ax, ay, '#ffcc00', 30);
+          spawnParticle(ax, ay, '#ffffff', 25);
+        }
+        // Kill both HTs - subtract their supply manually since we set dead=true directly
+        unit.hp = 0; unit.dead = true;
+        if (unit.team === 'player') playerSupply -= (unit.supply || 1);
+        else enemySupply -= (unit.supply || 1);
+        if (!partner.dead) {
+          partner.hp = 0; partner.dead = true;
+          if (partner.team === 'player') playerSupply -= (partner.supply || 1);
+          else enemySupply -= (partner.supply || 1);
+        }
+      }
+    }
     // Infestor: Fungal Growth (AoE root + damage)
     if (unit.type === 'infestor' && target && unit.fungalTimer <= 0) {
       const d = dist(unit, target);
@@ -2608,6 +2720,53 @@ function updateGame(dt) {
       }
     }
     if (unit.fungalTimer > 0) unit.fungalTimer -= dt;
+    // Infestor: Neural Parasite (mind control, channeled)
+    if (unit.type === 'infestor' && unit.neuralTarget) {
+      // Active neural parasite - maintain channel
+      const nt = unit.neuralTarget;
+      if (nt.dead || dist(unit, nt) > 180) {
+        // Target died or moved out of leash range - break channel
+        if (!nt.dead) {
+          nt.team = nt.originalTeam;
+          nt.neuralControlled = false;
+        }
+        unit.neuralTarget = null;
+        unit.neuralTimer = 0;
+        unit.neuralCooldown = 20;
+      } else {
+        unit.neuralTimer -= dt;
+        if (unit.neuralTimer <= 0) {
+          // Duration expired - return unit to original team
+          nt.team = nt.originalTeam;
+          nt.neuralControlled = false;
+          nt.target = null;
+          unit.neuralTarget = null;
+          unit.neuralCooldown = 20;
+          spawnParticle(nt.x, nt.y, '#aa44ff', 10);
+        }
+      }
+    }
+    if (unit.type === 'infestor' && !unit.neuralTarget && unit.neuralCooldown <= 0 && unit.fungalTimer > 0) {
+      // Auto-use Neural Parasite on high-value target when fungal is on cooldown
+      let bestTarget = null, bestValue = 0;
+      for (const e of units) {
+        if (e.dead || e.team === unit.team || e.worker || e.neuralControlled) continue;
+        if (dist(unit, e) > 120) continue;
+        const value = (e.supply || 1) * 10 + (e.dmg || 0);
+        if (value > bestValue) { bestValue = value; bestTarget = e; }
+      }
+      if (bestTarget && bestValue > 30) {
+        unit.neuralTarget = bestTarget;
+        unit.neuralTimer = 10;
+        bestTarget.originalTeam = bestTarget.team;
+        bestTarget.team = unit.team;
+        bestTarget.neuralControlled = true;
+        bestTarget.target = null; // clear target so it re-acquires
+        spawnParticle(unit.x, unit.y, '#aa44ff', 12);
+        spawnParticle(bestTarget.x, bestTarget.y, '#aa44ff', 12);
+      }
+    }
+    if (unit.type === 'infestor' && unit.neuralCooldown > 0) unit.neuralCooldown -= dt;
     // Raven: Auto-Turret drop
     if (unit.type === 'raven' && target && unit.atkTimer <= 0) {
       const d = dist(unit, target);
@@ -2980,6 +3139,16 @@ function updateGame(dt) {
     if (u.hp <= 0 && !u.dead) {
       u.dead = true;
       spawnParticle(u.x, u.y, u.color, 10);
+      // Release neural parasite targets when infestor dies
+      if (u.type === 'infestor' && u.neuralTarget && !u.neuralTarget.dead) {
+        u.neuralTarget.team = u.neuralTarget.originalTeam;
+        u.neuralTarget.neuralControlled = false;
+        u.neuralTarget.target = null;
+      }
+      // Return neurally controlled units to original team on death
+      if (u.neuralControlled && u.originalTeam) {
+        u.team = u.originalTeam;
+      }
       // Subtract supply
       if (u.team === 'player') playerSupply -= (u.supply || 1);
       else enemySupply -= (u.supply || 1);
@@ -3669,6 +3838,16 @@ function updateAIMicro(dt) {
       }
     }
 
+    // --- AI Siege mode optimization: siege tanks siege proactively when enemies approach ---
+    if (unit.type === 'siegetank' && !unit.siegeMode && unit.target) {
+      const d = dist(unit, unit.target);
+      // Siege earlier when enemy is approaching but still out of normal range
+      if (d <= 250 && d > 100) {
+        unit.siegeMode = true;
+        unit.siegeTimer = 0;
+      }
+    }
+
     // --- Stutter-step for ranged units: attack-move pattern ---
     if (P.stutterStep && unit.range > 60 && unit.target && !unit.siegeMode) {
       const d = dist(unit, unit.target);
@@ -3832,6 +4011,18 @@ function aiBuildBuilding(btype) {
   return false;
 }
 
+// Helper: set attack stance, routing through 'group' for AIs with groupBeforeAttack
+function aiSetAttackStance() {
+  const P = AI_PARAMS[aiDifficulty];
+  if (P.groupBeforeAttack && enemyStance !== 'group') {
+    enemyStance = 'group';
+    aiGroupTimer = 0;
+  } else {
+    enemyStance = 'attack';
+  }
+  aiLastAttackTime = gameTime;
+}
+
 function updateEnemyAI(dt) {
   const P = AI_PARAMS[aiDifficulty];
 
@@ -3859,28 +4050,25 @@ function updateEnemyAI(dt) {
     if (!P.groupBeforeAttack) {
       // Simple attack logic for easy AI
       if (s.enemyArmy >= s.playerArmy * P.attackThreshold || gameTime - aiLastAttackTime > P.attackCooldown) {
-        enemyStance = 'attack';
-        aiLastAttackTime = gameTime;
+        aiSetAttackStance();
       }
     }
   }
   // Rush: attack early with small force if we have enough units
   const rushMinUnits = aiDifficulty === 'impossible' ? 2 : 3;
   if (aiPhase === 'early' && s.combatCount >= rushMinUnits && enemyStance !== 'defend' && gameTime - aiLastAttackTime > 12) {
-    enemyStance = 'attack';
-    aiLastAttackTime = gameTime;
+    aiSetAttackStance();
   }
   // Mid/late game timing attacks: when we have army advantage, don't wait forever
   if ((aiPhase === 'mid' || aiPhase === 'late') && s.enemyArmy > s.playerArmy * 1.3 &&
       gameTime - aiLastAttackTime > P.attackCooldown * 0.5 && enemyStance !== 'defend') {
-    enemyStance = 'attack';
-    aiLastAttackTime = gameTime;
+    aiSetAttackStance();
   }
   // ---- Early harassment: send small poke squads to pressure player ----
   const harassMinUnits = aiDifficulty === 'impossible' ? 2 : 3;
   const harassCooldown = aiDifficulty === 'impossible' ? 12 : 18;
   const harassStartTime = aiDifficulty === 'impossible' ? 40 : 55;
-  if (P.groupBeforeAttack && (aiPhase === 'early' || aiPhase === 'mid') && s.combatCount >= harassMinUnits && enemyStance === 'group' &&
+  if (P.groupBeforeAttack && (aiPhase === 'early' || aiPhase === 'mid') && s.combatCount >= harassMinUnits && enemyStance !== 'attack' &&
       gameTime - aiLastAttackTime > harassCooldown && gameTime > harassStartTime) {
     // Send a harassment attack with just the units near the rally point
     const rallyX = ENEMY_CHOKE_X, rallyY = ENEMY_CHOKE_Y;
@@ -4016,7 +4204,7 @@ function updateEnemyAI(dt) {
         break;
       }
       case 'worker': {
-        const maxWorkers = Math.min(P.workerCap + (s.baseCount - 1) * 6, s.baseCount * 12);
+        const maxWorkers = Math.min(P.workerCap + (s.baseCount - 1) * 8, s.baseCount * 14);
         if (s.workerCount < maxWorkers && canAffordUnit(workerType, 'enemy')) {
           const wb = getBuildingForUnit(workerType, enemyBuildings);
           if (wb && wb.queue.length < 2) {
@@ -4455,6 +4643,40 @@ function render() {
     }
   }
 
+  // Neural Parasite tether lines
+  for (const u of units) {
+    if (u.dead || u.type !== 'infestor' || !u.neuralTarget || u.neuralTarget.dead) continue;
+    if (!isVisible(u.y) && !isVisible(u.neuralTarget.y)) continue;
+    const pulse = 0.5 + 0.5 * Math.sin(gameTime * 6);
+    ctx.strokeStyle = `rgba(170, 68, 255, ${0.4 + pulse * 0.3})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(u.x, u.y); ctx.lineTo(u.neuralTarget.x, u.neuralTarget.y); ctx.stroke();
+    // Small purple circle on controlled unit
+    ctx.strokeStyle = 'rgba(170, 68, 255, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(u.neuralTarget.x, u.neuralTarget.y, u.neuralTarget.r + 4, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // Nuke targeting indicators (red pulsing dot during ghost channel)
+  for (const u of units) {
+    if (u.dead || u.type !== 'ghost' || !u.nukeChanelling || !u.nukeTarget) continue;
+    const nx = u.nukeTarget.x, ny = u.nukeTarget.y;
+    if (!isVisible(ny)) continue;
+    const pulse = 0.5 + 0.5 * Math.sin(gameTime * 8);
+    // Red warning circle
+    ctx.strokeStyle = `rgba(255, 0, 0, ${0.5 + pulse * 0.5})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(nx, ny, 80 * (1 - u.nukeTimer / 5 * 0.3), 0, Math.PI * 2); ctx.stroke();
+    // Red dot at center
+    ctx.fillStyle = `rgba(255, 0, 0, ${0.7 + pulse * 0.3})`;
+    ctx.beginPath(); ctx.arc(nx, ny, 4, 0, Math.PI * 2); ctx.fill();
+    // "NUCLEAR LAUNCH DETECTED" text
+    ctx.fillStyle = `rgba(255, 50, 50, ${0.6 + pulse * 0.4})`;
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('NUCLEAR LAUNCH DETECTED', nx, ny - 90);
+  }
+
   // Auto-turrets
   for (const t of autoTurrets) {
     if (!isVisible(t.y)) continue;
@@ -4525,6 +4747,30 @@ function render() {
       ctx.strokeStyle = 'rgba(255, 50, 50, 0.5)';
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(u.x, u.y, u.r + 2, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Health bars (show when damaged)
+    if (u.hp < u.maxHp || (u.maxShield > 0 && u.shield < u.maxShield)) {
+      const barW = Math.max(u.r * 2, 14);
+      const barH = 2;
+      const barX = u.x - barW / 2;
+      const barY = u.y - u.r - 6;
+      // HP bar background
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+      // HP bar fill (green -> yellow -> red)
+      const hpFrac = u.hp / u.maxHp;
+      const r = hpFrac < 0.5 ? 255 : Math.floor(255 * (1 - hpFrac) * 2);
+      const g = hpFrac > 0.5 ? 255 : Math.floor(255 * hpFrac * 2);
+      ctx.fillStyle = `rgb(${r},${g},0)`;
+      ctx.fillRect(barX, barY, barW * hpFrac, barH);
+      // Shield bar (blue, above HP bar)
+      if (u.maxShield > 0) {
+        const sBarY = barY - 4;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(barX - 1, sBarY - 1, barW + 2, barH + 2);
+        ctx.fillStyle = '#4488ff';
+        ctx.fillRect(barX, sBarY, barW * (u.shield / u.maxShield), barH);
+      }
     }
   }
 
@@ -4791,6 +5037,33 @@ function drawUnit(u) {
 }
 
 // ---- SC2 Unit Drawing System ----
+function drawArchonUnit(cx, cy, r, dir, color, anim) {
+  // Glowing energy sphere with crackling effect
+  const pulse = 0.8 + 0.2 * Math.sin(anim * 8);
+  // Outer glow
+  const grad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 1.5);
+  grad.addColorStop(0, 'rgba(100, 180, 255, 0.9)');
+  grad.addColorStop(0.5, 'rgba(50, 100, 200, 0.5)');
+  grad.addColorStop(1, 'rgba(30, 50, 150, 0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(cx, cy, r * 1.5 * pulse, 0, Math.PI * 2); ctx.fill();
+  // Core body
+  ctx.fillStyle = '#6699ff';
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.7, 0, Math.PI * 2); ctx.fill();
+  // Inner bright core
+  ctx.fillStyle = '#ccddff';
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.35, 0, Math.PI * 2); ctx.fill();
+  // Energy crackles
+  ctx.strokeStyle = 'rgba(150, 200, 255, 0.7)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    const angle = anim * 3 + i * 2.1;
+    const ex = cx + Math.cos(angle) * r * 1.1;
+    const ey = cy + Math.sin(angle) * r * 1.1;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+  }
+}
+
 function drawSC2Unit(type, cx, cy, r, dir, color, team, anim) {
   switch(type) {
     case 'marine': drawMarine(cx, cy, r, dir, color, anim); break;
@@ -4832,6 +5105,7 @@ function drawSC2Unit(type, cx, cy, r, dir, color, team, anim) {
     case 'reaper': drawReaperUnit(cx, cy, r, dir, color, anim); break;
     case 'hellion': drawHellionUnit(cx, cy, r, dir, color, anim); break;
     case 'banshee': drawBansheeUnit(cx, cy, r, dir, color, anim); break;
+    case 'archon': drawArchonUnit(cx, cy, r, dir, color, anim); break;
     default:
       ctx.fillStyle = color;
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
