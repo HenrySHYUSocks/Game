@@ -205,7 +205,7 @@ function applyMapSettings() {
 
   // Third expansion — off to the side, harder to defend
   THIRD_EXP_X = MAP_W / 2;       // 900
-  THIRD_EXP_Y = MAP_W / 2;       // 900 (slightly player-side)
+  THIRD_EXP_Y = GAME_H / 2 + 120; // 820 (slightly player-side, below center ridge)
 
   // Choke points — between natural and the rest of the map
   PLAYER_CHOKE_X = MAP_W - 580;  // 1220
@@ -964,7 +964,7 @@ function makeMineralPatches() {
   return {
     player: [
       { x: PBX - 120, y: PBY - 85, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX - 75,  y: PBY - 100, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 50,  y: PBY - 108, minerals: 1800, maxMinerals: 1800 },
       { x: PBX - 30,  y: PBY - 110, minerals: 1800, maxMinerals: 1800 },
       { x: PBX + 30,  y: PBY - 110, minerals: 1800, maxMinerals: 1800 },
       { x: PBX + 75,  y: PBY - 100, minerals: 1800, maxMinerals: 1800 },
@@ -977,31 +977,31 @@ function makeMineralPatches() {
       { x: EBX - 75,  y: EBY + 100, minerals: 1800, maxMinerals: 1800 },
       { x: EBX - 30,  y: EBY + 110, minerals: 1800, maxMinerals: 1800 },
       { x: EBX + 30,  y: EBY + 110, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX + 75,  y: EBY + 100, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 50,  y: EBY + 108, minerals: 1800, maxMinerals: 1800 },
       { x: EBX + 120, y: EBY + 85, minerals: 1800, maxMinerals: 1800 },
       { x: EBX - 95,  y: EBY + 92, minerals: 1800, maxMinerals: 1800 },
       { x: EBX + 95,  y: EBY + 92, minerals: 1800, maxMinerals: 1800 },
     ],
     // Natural expansion minerals — near natural base
     playerExpansion: [
-      { x: PLAYER_EXP_X - 120, y: PLAYER_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X - 75,  y: PLAYER_EXP_Y - 90, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X - 30,  y: PLAYER_EXP_Y - 95, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X + 30,  y: PLAYER_EXP_Y - 95, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X + 75,  y: PLAYER_EXP_Y - 90, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X + 120, y: PLAYER_EXP_Y - 75, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X - 95,  y: PLAYER_EXP_Y - 82, minerals: 1800, maxMinerals: 1800 },
-      { x: PLAYER_EXP_X + 95,  y: PLAYER_EXP_Y - 82, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 120, y: PLAYER_EXP_Y - 30, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 75,  y: PLAYER_EXP_Y - 40, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 30,  y: PLAYER_EXP_Y - 45, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 30,  y: PLAYER_EXP_Y - 45, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 75,  y: PLAYER_EXP_Y - 40, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 120, y: PLAYER_EXP_Y - 30, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X - 95,  y: PLAYER_EXP_Y - 35, minerals: 1800, maxMinerals: 1800 },
+      { x: PLAYER_EXP_X + 95,  y: PLAYER_EXP_Y - 35, minerals: 1800, maxMinerals: 1800 },
     ],
     enemyExpansion: [
-      { x: ENEMY_EXP_X - 120, y: ENEMY_EXP_Y + 75, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X - 75,  y: ENEMY_EXP_Y + 90, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X - 30,  y: ENEMY_EXP_Y + 95, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X + 30,  y: ENEMY_EXP_Y + 95, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X + 75,  y: ENEMY_EXP_Y + 90, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X + 120, y: ENEMY_EXP_Y + 75, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X - 95,  y: ENEMY_EXP_Y + 82, minerals: 1800, maxMinerals: 1800 },
-      { x: ENEMY_EXP_X + 95,  y: ENEMY_EXP_Y + 82, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 120, y: ENEMY_EXP_Y + 30, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 75,  y: ENEMY_EXP_Y + 40, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 30,  y: ENEMY_EXP_Y + 45, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 30,  y: ENEMY_EXP_Y + 45, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 75,  y: ENEMY_EXP_Y + 40, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 120, y: ENEMY_EXP_Y + 30, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X - 95,  y: ENEMY_EXP_Y + 35, minerals: 1800, maxMinerals: 1800 },
+      { x: ENEMY_EXP_X + 95,  y: ENEMY_EXP_Y + 35, minerals: 1800, maxMinerals: 1800 },
     ],
     // Third contested expansion — GOLD minerals (1.5x yield), center of map
     thirdExpansion: [
