@@ -445,7 +445,7 @@ function makeObstacles() {
     { type: 'cliff', x: PBX + 170, y: PBY - 180, w: 40, h: 400, name: 'P Main R' },
     // Bottom edge (against map edge)
     { type: 'cliff', x: PBX - 180, y: PBY + 180, w: 390, h: 40, name: 'P Main Bot' },
-    // Top edge (behind minerals)
+    // Top edge
     { type: 'cliff', x: PBX - 80, y: PBY - 180, w: 290, h: 40, name: 'P Main Top' },
     // Left edge — SHORT, leaves wide ramp opening at bottom
     { type: 'cliff', x: PBX - 180, y: PBY + 40, w: 40, h: 180, name: 'P Main L' },
@@ -462,7 +462,7 @@ function makeObstacles() {
     { type: 'cliff', x: EBX - 210, y: EBY - 220, w: 40, h: 400, name: 'E Main L' },
     // Top edge (against map edge)
     { type: 'cliff', x: EBX - 210, y: EBY - 220, w: 390, h: 40, name: 'E Main Top' },
-    // Bottom edge (behind minerals)
+    // Bottom edge
     { type: 'cliff', x: EBX - 210, y: EBY + 140, w: 290, h: 40, name: 'E Main Bot' },
     // Right edge — SHORT, leaves wide ramp opening at top
     { type: 'cliff', x: EBX + 140, y: EBY - 220, w: 40, h: 180, name: 'E Main R' },
@@ -958,29 +958,30 @@ function drawObstacles() {
 
 function makeMineralPatches() {
   // SC2-style mineral arcs near each base
-  // Player main — minerals to the upper-right of base (against back wall)
+  // Player main — minerals behind base (against bottom wall, away from ramp)
   const PBX = PLAYER_BASE_X, PBY = PLAYER_BASE_Y;
   const EBX = ENEMY_BASE_X, EBY = ENEMY_BASE_Y;
   return {
     player: [
-      { x: PBX - 120, y: PBY - 85, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX + 50,  y: PBY - 108, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX - 30,  y: PBY - 110, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX + 30,  y: PBY - 110, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX + 75,  y: PBY - 100, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX + 120, y: PBY - 85, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX - 95,  y: PBY - 92, minerals: 1800, maxMinerals: 1800 },
-      { x: PBX + 95,  y: PBY - 92, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 120, y: PBY + 125, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 75,  y: PBY + 140, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 30,  y: PBY + 150, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 30,  y: PBY + 150, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 75,  y: PBY + 140, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 120, y: PBY + 125, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX - 95,  y: PBY + 132, minerals: 1800, maxMinerals: 1800 },
+      { x: PBX + 95,  y: PBY + 132, minerals: 1800, maxMinerals: 1800 },
     ],
+    // Enemy main — minerals behind base (against top wall, away from ramp)
     enemy: [
-      { x: EBX - 120, y: EBY + 85, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX - 75,  y: EBY + 100, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX - 30,  y: EBY + 110, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX + 30,  y: EBY + 110, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX - 50,  y: EBY + 108, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX + 120, y: EBY + 85, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX - 95,  y: EBY + 92, minerals: 1800, maxMinerals: 1800 },
-      { x: EBX + 95,  y: EBY + 92, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 120, y: EBY - 125, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 75,  y: EBY - 140, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 30,  y: EBY - 150, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 30,  y: EBY - 150, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 75,  y: EBY - 140, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 120, y: EBY - 125, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX - 95,  y: EBY - 132, minerals: 1800, maxMinerals: 1800 },
+      { x: EBX + 95,  y: EBY - 132, minerals: 1800, maxMinerals: 1800 },
     ],
     // Natural expansion minerals — near natural base
     playerExpansion: [
